@@ -1,3 +1,5 @@
+//! Documentation helpers.
+
 /// This trait is meant to list the columns
 /// and their expected types for a type `T`
 /// that will be serialized to and deserialized from

@@ -35,6 +35,7 @@ pub trait Unit: Debug + From<f32> {
     fn value_mut(&mut self) -> &mut f32;
 }
 
+/// Implement all the traits necessary for to implement [`Numeric`].
 #[macro_export]
 macro_rules! impl_numeric {
     ($type:ty$(, $($bounds:tt)*)?) => {
@@ -245,6 +246,9 @@ impl<N: Unit, M: Unit> Unit for Product<N, M> {
     }
 }
 
+/// Implement [`Div`](std::ops::Div) so that we can do `A / B -> A/B`,
+/// i.e. create ratios by dividing base units.
+///
 /// This is hacky and less than ideal but so far seems to be the only
 /// way to do this. Ideally we just have a blanket implementation
 /// of:
@@ -292,6 +296,7 @@ macro_rules! impl_ratio_from_div {
     };
 }
 
+/// Other unit-specific trait implementations.
 #[macro_export]
 macro_rules! impl_ops {
     ($type:ty$(, $($bounds:tt)*)?) => {
@@ -404,6 +409,7 @@ impl Prefix for () {
 macro_rules! define_prefixes {
     ( $($key:ident:$prefix:ident:$factor:literal),* $(,)? ) => {
         $(
+            #[doc = concat!("SI prefix representing a factor of ", stringify!($factor), ".")]
             #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
             pub struct $key;
             impl Prefix for $key {
@@ -702,6 +708,8 @@ impl<U: SIUnit, M: Unit> Product<U, M> {
     }
 }
 
+/// A type representing a percentage.
+///
 /// Because of its ubiquity and utility, percentages
 /// are provided by the crate. This does *not*
 /// implement `Unit` as technically it's not a unit (rather

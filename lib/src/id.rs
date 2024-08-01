@@ -1,5 +1,4 @@
-//! Generate random, human-readable/pronounceable ids,
-//! or lighter weight incrementing integer ids.
+//! Generate random, human-readable/pronounceable ids.
 
 use std::sync::LazyLock;
 

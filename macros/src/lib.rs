@@ -189,6 +189,7 @@ impl Parse for MacroInput {
 /// Given a list of identifiers and a macro,
 /// this iterates over the self-Cartesian product
 /// of the identifiers, excluding the identity pairs.
+///
 /// For example, with the identifiers `[A, B, C]`
 /// this yields the pairs:
 ///

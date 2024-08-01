@@ -1,11 +1,3 @@
-//! Fixed-length numeric sequence, i.e. an array,
-//! but with some additional functionality where
-//! they can be treated a bit more like n-d vectors.
-//!
-//! You probably won't interact with this type directly
-//! but rather through one of its pre-defined aliases
-//! that represent fixed time intervals, e.g. [`ByDayHour`].
-
 use std::{
     ops::{
         Add,
@@ -25,6 +17,13 @@ use serde::{Deserialize, Serialize};
 
 use super::numeric::Numeric;
 
+/// Fixed-length numeric sequence, i.e. an array,
+/// but with some additional functionality where
+/// they can be treated a bit more like n-d vectors.
+///
+/// You probably won't interact with this type directly
+/// but rather through one of its pre-defined aliases
+/// that represent fixed time intervals, e.g. [`ByDayHour`](super::ByDayHour).
 #[derive(
     Debug, Clone, Copy, PartialEq, Deref, Serialize, Deserialize,
 )]

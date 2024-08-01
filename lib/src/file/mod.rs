@@ -1,3 +1,6 @@
+//! File system helpers, including
+//! serializing/deserializing from common data formats.
+
 mod path;
 
 use std::{

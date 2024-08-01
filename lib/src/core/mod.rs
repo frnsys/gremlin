@@ -1,3 +1,5 @@
+//! Helpers for working with numbers and collections of numbers.
+
 use derive_more::{Deref, DerefMut};
 
 mod array;
@@ -12,6 +14,7 @@ use extend::ext;
 pub use numeric::Numeric;
 pub use units::*;
 
+/// A fixed array of 24 elements.
 pub type ByDayHour<N> = Array<N, 24>;
 
 /// An array with one element per hour of the year.
@@ -56,6 +59,7 @@ impl<N: Numeric> ByYearHour<N> {
 
 #[ext(name=EnumMapExt)]
 pub impl<K: Enum + EnumArray<V>, V: Copy> EnumMap<K, V> {
+    /// Create an enum map by repeating a single value.
     fn splat(v: V) -> Self {
         EnumMap::from_fn(|_| v)
     }

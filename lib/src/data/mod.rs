@@ -1,3 +1,5 @@
+//! Data processing helpers.
+
 mod geotime;
 mod helpers;
 mod hydrate;
