@@ -1,0 +1,16 @@
+agate
+bismuth
+emerald
+graphite
+halite
+quartz
+diamond
+ruby
+sapphire
+amber
+opal
+onyx
+topaz
+jade
+ivory
+amethyst
