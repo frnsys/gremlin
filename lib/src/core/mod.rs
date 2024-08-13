@@ -1,26 +1,38 @@
 //! Helpers for working with numbers and collections of numbers.
 
-use derive_more::{Deref, DerefMut};
-
 mod array;
 mod numeric;
 mod series;
 mod units;
 mod var;
 
+use ahash::HashMap;
+pub use anyhow::Result as AnyResult;
 pub use array::Array;
 use enum_map::{Enum, EnumArray, EnumMap};
 use extend::ext;
+pub use generic_array::GenericArray;
 pub use numeric::Numeric;
+pub use series::*;
+pub use typenum::U;
 pub use units::*;
+pub use var::ExogVariable;
 
 /// A fixed array of 24 elements.
 pub type ByDayHour<N> = Array<N, 24>;
+impl<N: Numeric> From<HashMap<u8, N>> for ByDayHour<N> {
+    fn from(value: HashMap<u8, N>) -> Self {
+        let mut val = ByDayHour::default();
+        for (k, v) in value {
+            val[k as usize] = v;
+        }
+        val
+    }
+}
 
 /// An array with one element per hour of the year.
 /// We assume no leap years, so a year is always 8760 hours.
-#[derive(Deref, DerefMut)]
-pub struct ByYearHour<N: Numeric>(Array<N, 8760>); // HourlyYearSeries
+pub type ByYearHour<N> = Array<N, 8760>;
 impl<N: Numeric> ByYearHour<N> {
     /// Repeat a day across the year.
     pub fn from_day(value: [N; 24]) -> Self {
@@ -30,7 +42,7 @@ impl<N: Numeric> ByYearHour<N> {
             .collect::<Vec<_>>()
             .try_into()
             .expect("Will have the correct amount of entries");
-        Self(Array::new(values))
+        Array::new(values)
     }
 
     /// Calculate the sum of values for each hour of the day.
@@ -39,7 +51,7 @@ impl<N: Numeric> ByYearHour<N> {
     /// 1h, etc.
     pub fn sum_day_hours(&self) -> ByDayHour<N> {
         let mut sums = [N::default(); 24];
-        for day in self.0.chunks(24) {
+        for day in self.chunks(24) {
             for (value, sum) in day.iter().zip(&mut sums) {
                 *sum += *value;
             }
@@ -55,13 +67,40 @@ impl<N: Numeric> ByYearHour<N> {
         let sums = self.sum_day_hours();
         sums / 365.
     }
+
+    /// Iterate over values, but also get:
+    ///
+    /// - the hour of the year (0 to 8760; first in the tuple)
+    /// - the hour of the day (0 to 24; second in the tuple)
+    pub fn enumerate(
+        &self,
+    ) -> impl Iterator<Item = (usize, usize, &N)> {
+        self.iter().enumerate().map(|(year_hour, val)| {
+            let day_hour = year_hour % 24;
+            (year_hour, day_hour, val)
+        })
+    }
+}
+
+// Just implement for `f32` so we don't have to specify `N`
+// when using this method.
+impl ByYearHour<f32> {
+    /// Iterate over each hour of each day throughout a year.
+    /// The first iterated value is the hour of the year (0 to 8760)
+    /// and the second is the hour of the day (0 to 24).
+    pub fn iter_hours() -> impl Iterator<Item = (usize, usize)>
+    {
+        let range = 0..24;
+        let n = range.len();
+        range.cycle().take(365 * n).enumerate()
+    }
 }
 
 #[ext(name=EnumMapExt)]
-pub impl<K: Enum + EnumArray<V>, V: Copy> EnumMap<K, V> {
+pub impl<K: Enum + EnumArray<V>, V: Clone> EnumMap<K, V> {
     /// Create an enum map by repeating a single value.
     fn splat(v: V) -> Self {
-        EnumMap::from_fn(|_| v)
+        EnumMap::from_fn(|_| v.clone())
     }
 }
 

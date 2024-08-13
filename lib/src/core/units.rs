@@ -28,11 +28,25 @@ pub trait Unit: Debug + From<f32> {
     /// The abbreviation for this unit, e.g. "W".
     fn abbrev() -> String;
 
+    /// The abbreviation for this unit, e.g. "W".
+    fn units(&self) -> String {
+        Self::abbrev()
+    }
+
     /// Return the raw value of this quantity.
     fn value(&self) -> f32;
 
     /// Return a mutable reference to the value of this quantity.
     fn value_mut(&mut self) -> &mut f32;
+}
+
+pub struct Zero<const N: usize>;
+pub struct Foo;
+
+impl PartialEq<Zero<0>> for Foo {
+    fn eq(&self, _: &Zero<0>) -> bool {
+        0 == 0
+    }
 }
 
 /// Implement all the traits necessary for to implement [`Numeric`].
@@ -154,6 +168,15 @@ macro_rules! impl_numeric {
             }
         }
 
+        impl<$($($bounds)*)?> std::str::FromStr for $type {
+            type Err = std::num::ParseFloatError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                s.parse().map(|val| Self::new(val))
+            }
+        }
+
+
         impl<$($($bounds)*)?> serde::Serialize for $type {
             fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
             where
@@ -247,7 +270,9 @@ impl<N: Unit, M: Unit> Unit for Product<N, M> {
 }
 
 /// Implement [`Div`](std::ops::Div) so that we can do `A / B -> A/B`,
-/// i.e. create ratios by dividing base units.
+/// i.e. create ratios by dividing base units,
+/// and other ops that result in conflicting implementations when using
+/// generics.
 ///
 /// This is hacky and less than ideal but so far seems to be the only
 /// way to do this. Ideally we just have a blanket implementation
@@ -285,12 +310,33 @@ impl<N: Unit, M: Unit> Unit for Product<N, M> {
 /// we skip it. The [`non_identity_pairs!`] proc macro handles this looping part,
 /// and then this macro is what's given as the impl block for each non-identity type pair.
 #[macro_export]
-macro_rules! impl_ratio_from_div {
+macro_rules! impl_concrete_ops {
     ($a:ty, $b:ty $(, $($bounds:tt)*)?) => {
+        /// A / B -> A/B
         impl<$($($bounds)*)?> std::ops::Div<$b> for $a {
             type Output = Ratio<$a, $b>;
             fn div(self, rhs: $b) -> Self::Output {
                 (self.value() / rhs.value()).into()
+            }
+        }
+
+        /// A/BC * B -> A/C
+        impl<A: BaseUnit, $($($bounds)*)?> std::ops::Mul<$a>
+            for Ratio<A, Product<$a, $b>>
+        {
+            type Output = Ratio<A, $b>;
+            fn mul(self, rhs: $a) -> Self::Output {
+                (self.value() * rhs.value()).into()
+            }
+        }
+
+        /// A/BC * C -> A/B
+        impl<A: BaseUnit, $($($bounds)*)?> std::ops::Mul<$b>
+            for Ratio<A, Product<$a, $b>>
+        {
+            type Output = Ratio<A, $a>;
+            fn mul(self, rhs: $b) -> Self::Output {
+                (self.value() * rhs.value()).into()
             }
         }
     };
@@ -313,7 +359,7 @@ macro_rules! impl_ops {
         }
 
         // NOTE: This doesn't actually work currently,
-        // see note for [`impl_ratio_from_div!`].
+        // see note for [`impl_concrete_ops!`].
         // `Ratio` from two units,
         // i.e. `A / B = A/B`.
         //
@@ -371,6 +417,51 @@ impl<N: BaseUnit, D: BaseUnit> std::ops::Mul<D>
 {
     type Output = N;
     fn mul(self, rhs: D) -> Self::Output {
+        (self.value() * rhs.value()).into()
+    }
+}
+
+// Handling some more specific cases.
+// TODO Perhaps use a macro to implement a bunch of these?
+/// A/BC * BC -> A
+impl<A: BaseUnit, B: BaseUnit, C: BaseUnit>
+    std::ops::Mul<Product<B, C>> for Ratio<A, Product<B, C>>
+{
+    type Output = A;
+    fn mul(self, rhs: Product<B, C>) -> Self::Output {
+        (self.value() * rhs.value()).into()
+    }
+}
+
+// NOTE: These two implementations conflict,
+// so this is actually implemented for concrete types
+// in the [`impl_concrete_ops!`] macro.
+//
+// A/BC * B -> A/C
+// impl<A: BaseUnit, B: BaseUnit, C: BaseUnit> std::ops::Mul<B>
+//     for Ratio<A, Product<B, C>>
+// {
+//     type Output = Ratio<A, C>;
+//     fn mul(self, rhs: B) -> Self::Output {
+//         (self.value() * rhs.value()).into()
+//     }
+// }
+// A/BC * C -> A/B
+// impl<A: BaseUnit, B: BaseUnit, C: BaseUnit> std::ops::Mul<C>
+//     for Ratio<A, Product<B, C>>
+// {
+//     type Output = Ratio<A, B>;
+//     fn mul(self, rhs: B) -> Self::Output {
+//         (self.value() * rhs.value()).into()
+//     }
+// }
+
+/// A/BC * D/A -> D/BC
+impl<A: BaseUnit, B: BaseUnit, C: BaseUnit, D: BaseUnit>
+    std::ops::Mul<Ratio<D, A>> for Ratio<A, Product<B, C>>
+{
+    type Output = Ratio<D, Product<B, C>>;
+    fn mul(self, rhs: Ratio<D, A>) -> Self::Output {
         (self.value() * rhs.value()).into()
     }
 }
@@ -589,7 +680,7 @@ macro_rules! define_units {
             $crate::impl_ops!($name_b<P>, P: Prefix);
         )*
 
-        $crate::non_identity_pairs!([$($name_a,)* $($name_b<P: Prefix>,)*] $crate::impl_ratio_from_div);
+        $crate::non_identity_pairs!([$($name_a,)* $($name_b<P: Prefix>,)*] $crate::impl_concrete_ops);
     };
 }
 
@@ -730,6 +821,12 @@ impl Percent {
 
     pub fn value_mut(&mut self) -> &mut f32 {
         &mut self.0
+    }
+}
+impl std::ops::Mul<Percent> for f32 {
+    type Output = f32;
+    fn mul(self, rhs: Percent) -> Self::Output {
+        rhs.value() * self
     }
 }
 impl Display for Percent {

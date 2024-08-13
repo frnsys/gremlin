@@ -16,6 +16,7 @@ use std::{
         Sub,
         SubAssign,
     },
+    str::FromStr,
 };
 
 use serde::{de::DeserializeOwned, Serialize};
@@ -56,6 +57,7 @@ pub trait Numeric:
     + Default
     + Display
     + Debug
+    + FromStr
     + Serialize
     + DeserializeOwned
 {

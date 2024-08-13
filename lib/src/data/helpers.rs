@@ -7,7 +7,7 @@ use serde::{
     Deserializer,
 };
 
-use crate::core::{Prefix, Unit};
+use crate::core::Unit;
 
 /// Deserialize a list that's a string, e,g, `"A, B, C"`,
 /// into a list of a type, e.g. `[MyEnum::A, MyEnum::B, MyEnum::C]`.

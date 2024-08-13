@@ -1,5 +1,7 @@
 //! Documentation helpers.
 
+use crate::core::AnnualSeries;
+
 /// This trait is meant to list the columns
 /// and their expected types for a type `T`
 /// that will be serialized to and deserialized from
@@ -37,4 +39,23 @@ impl HasSchema for f32 {
             "Float value".to_string(),
         )]
     }
+}
+
+impl<N> HasSchema for AnnualSeries<N> {
+    fn schema() -> Vec<(String, &'static str, String)> {
+        vec![
+            ("year".to_string(), "u16", "The year".to_string()),
+            (
+                "value".to_string(),
+                std::any::type_name::<N>(),
+                "The value".to_string(),
+            ),
+        ]
+    }
+}
+
+/// Use for enums to extract documentation about
+/// their variants.
+pub trait HasVariants {
+    fn describe_variants() -> Vec<(String, String)>;
 }

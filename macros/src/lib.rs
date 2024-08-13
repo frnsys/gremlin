@@ -27,7 +27,7 @@ use syn::{
 };
 
 /// This macro provides a derive macro, `HasSchema`,
-/// which implements the [`HasSchema`](../infra_lib/io/csv/trait.HasSchema.html) trait,
+/// which implements the [`HasSchema`](../gremlin/docs/trait.HasSchema.html) trait,
 /// to automatically produce documentation about the expected
 /// CSV schema for deserializing to this struct.
 #[proc_macro_derive(HasSchema, attributes(serde))]
@@ -298,4 +298,54 @@ fn extract_generics(ty: &Type) -> (Type, Option<Constraint>) {
     }
 
     (ret_ty, constr)
+}
+
+/// Implements a `list` method for an enum
+/// which iterates over its variant names and their associated docstrings.
+#[proc_macro_derive(HasVariants, attributes(doc))]
+pub fn has_variants_derive(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+
+    // Ensure we're dealing with an enum
+    let name = &ast.ident;
+    let data = if let Data::Enum(data) = ast.data {
+        data
+    } else {
+        panic!("HasVariants only works on enums!");
+    };
+
+    // Extract enum variants and their docs
+    let variants = data.variants.iter().map(|variant| {
+        let variant_name = &variant.ident;
+        let docs = variant
+            .attrs
+            .iter()
+            .filter_map(|attr| {
+                if let Ok(Meta::NameValue(meta)) = attr.parse_meta() {
+                    if meta.path.is_ident("doc") {
+                        if let syn::Lit::Str(lit) = meta.lit {
+                            return Some(lit.value());
+                        }
+                    }
+                }
+                None
+            })
+            .collect::<Vec<String>>()
+            .join(" ");
+
+        quote! {
+            (String::from(stringify!(#variant_name)), String::from(#docs))
+        }
+    });
+
+    // Implement the trait
+    let gen = quote! {
+        impl HasVariants for #name {
+            fn describe_variants() -> Vec<(String, String)> {
+                vec![#(#variants),*]
+            }
+        }
+    };
+
+    gen.into()
 }

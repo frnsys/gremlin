@@ -233,7 +233,7 @@ impl RecorderData {
                 })
                 .collect(),
         };
-        write_csv(&records, path);
+        write_csv(path, &records);
     }
 }
 

@@ -1,9 +1,12 @@
 use std::{
+    iter::Sum,
     ops::{
         Add,
         AddAssign,
         Div,
         DivAssign,
+        Index,
+        IndexMut,
         Mul,
         MulAssign,
         Sub,
@@ -13,7 +16,8 @@ use std::{
 };
 
 use derive_more::Deref;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_with::serde_as;
 
 use super::numeric::Numeric;
 
@@ -24,14 +28,19 @@ use super::numeric::Numeric;
 /// You probably won't interact with this type directly
 /// but rather through one of its pre-defined aliases
 /// that represent fixed time intervals, e.g. [`ByDayHour`](super::ByDayHour).
+#[serde_as]
 #[derive(
     Debug, Clone, Copy, PartialEq, Deref, Serialize, Deserialize,
 )]
 #[serde(transparent)]
-pub struct Array<N: Numeric, const U: usize>(
-    #[serde(with = "serde_arrays")] [N; U],
+#[serde(bound(
+    serialize = "N: Serialize",
+    deserialize = "N: DeserializeOwned"
+))]
+pub struct Array<N, const U: usize>(
+    #[serde_as(as = "[_; U]")] [N; U],
 );
-impl<N: Numeric, const U: usize> Array<N, U> {
+impl<N, const U: usize> Array<N, U> {
     pub fn new(vals: [N; U]) -> Self {
         Self(vals)
     }
@@ -40,10 +49,26 @@ impl<N: Numeric, const U: usize> Array<N, U> {
         self.0.iter()
     }
 
+    pub fn iter_mut(
+        &mut self,
+    ) -> impl ExactSizeIterator<Item = &mut N> {
+        self.0.iter_mut()
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    pub fn into<M>(self) -> Array<M, U>
+    where
+        M: From<N>,
+    {
+        let arr = self.0.map(|v| M::from(v));
+        Array(arr)
+    }
+}
+
+impl<N: Numeric, const U: usize> Array<N, U> {
     /// Get the minimum element.
     pub fn min(&self) -> N {
         self.iter()
@@ -88,25 +113,52 @@ impl<N: Numeric, const U: usize> Array<N, U> {
         Self::new(vals)
     }
 
-    /// Create a new array from a single value.
-    pub fn splat(val: N) -> Self {
-        let arr = [val; U];
-        Self(arr)
+    /// Limit all elements to a maximum value.
+    pub fn clamp(&self, val: N) -> Self {
+        let mut vals = [N::default(); U];
+        for i in 0..U {
+            vals[i] = self[i].max(&val);
+        }
+        Self::new(vals)
     }
 
-    pub fn into<M: Numeric>(self) -> Array<M, U>
-    where
-        M: From<N>,
-    {
-        let arr = self.0.map(|v| M::from(v));
-        Array(arr)
+    /// Distribute the provided value according to
+    /// the provided distribution (which should sum to 1.0).
+    pub fn distribute_value(
+        val: N,
+        dist: &Array<f32, U>,
+    ) -> Array<N, U> {
+        Self::new(dist.map(|p| val * p))
     }
 }
-impl<N: Numeric, const U: usize> Default for Array<N, U> {
+impl<N: Default, const U: usize> Default for Array<N, U> {
     fn default() -> Self {
-        Self([N::default(); U])
+        let arr: [N; U] = std::array::from_fn(|_| N::default());
+        Self(arr)
     }
 }
+
+impl<N: Clone, const U: usize> Array<N, U> {
+    /// Create a new array from a single value.
+    pub fn splat(val: N) -> Self {
+        let arr: [N; U] = std::array::from_fn(|_| val.clone());
+        Self(arr)
+    }
+}
+
+impl<N, const U: usize> Index<usize> for Array<N, U> {
+    type Output = N;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.0[index]
+    }
+}
+impl<N, const U: usize> IndexMut<usize> for Array<N, U> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
 impl<N: Numeric, const U: usize> Add for Array<N, U> {
     type Output = Array<N, U>;
 
@@ -230,6 +282,32 @@ impl<N: Numeric, const U: usize> DivAssign<f32>
         for i in 0..U {
             self.0[i] /= rhs;
         }
+    }
+}
+
+impl<N: Numeric, const U: usize> Sum for Array<N, U> {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        let mut ret = Self::default();
+        for other in iter {
+            ret += other;
+        }
+        ret
+    }
+}
+
+impl<N, const U: usize> FromIterator<N> for Array<N, U> {
+    fn from_iter<I: IntoIterator<Item = N>>(iter: I) -> Self {
+        let v: Vec<_> = iter.into_iter().collect();
+        Array::from(v)
+    }
+}
+impl<N, const U: usize> From<Vec<N>> for Array<N, U> {
+    fn from(value: Vec<N>) -> Self {
+        let Ok(arr): Result<[N; U], _> = value.try_into()
+        else {
+            panic!("Vec should be of length {U}")
+        };
+        Self::new(arr)
     }
 }
 

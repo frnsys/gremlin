@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 
 use anyhow::Result;
 use chrono::{NaiveDateTime, TimeZone};
-use chrono_tz::Tz;
+pub use chrono_tz::Tz;
 use csv::{Reader, ReaderBuilder};
 use geo::{point, prelude::HaversineDistance, Point};
 use time::OffsetDateTime;
