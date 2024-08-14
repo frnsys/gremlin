@@ -95,12 +95,11 @@ pub fn read_flat_csv<
         .as_object()
         .expect("We gave an object so we get one back");
     let ref_cols: Vec<&String> = json_obj.keys().collect();
+    let path = path.as_ref();
 
-    let mut reader = csv::Reader::from_path(path.as_ref())
-        .map_err(|_err| {
-            CsvError::FailedToOpenFile(
-                path.as_ref().to_path_buf(),
-            )
+    let mut reader =
+        csv::Reader::from_path(path).map_err(|_err| {
+            CsvError::FailedToOpenFile(path.to_path_buf())
         })?;
 
     let cols: Vec<String> = reader
@@ -111,24 +110,33 @@ pub fn read_flat_csv<
         .collect();
 
     // Some basic validation
-    if ref_cols.len() != cols.len() {
-        return Err(CsvError::ColumnsMismatch);
+    let missing: Vec<_> = ref_cols
+        .iter()
+        .filter(|col| !cols.contains(col))
+        .map(|col| col.to_string())
+        .collect();
+    if !missing.is_empty() {
+        return Err(CsvError::ColumnsMismatch(
+            path.display().to_string(),
+            missing,
+        ));
     }
 
-    if ref_cols.iter().zip(cols.iter()).any(|(r, c)| *r != c) {
-        return Err(CsvError::ColumnsMismatch);
-    }
+    let idxs: Vec<usize> = ref_cols
+        .iter()
+        .filter_map(|col| cols.iter().position(|c| c == *col))
+        .collect();
 
     let mut data = vec![];
     for rec in reader.records() {
         let rec =
             rec.map_err(|_err| CsvError::FailedToReadRecord)?;
         let mut map = serde_json::Map::new();
-        for (col, typ, val) in multizip((
-            cols.iter(),
-            json_obj.values(),
-            rec.iter(),
-        )) {
+        for (idx, typ) in
+            multizip((idxs.iter(), json_obj.values()))
+        {
+            let val = &rec[*idx];
+            let col = &cols[*idx];
             match typ {
                 Value::Bool(_) => {
                     map.insert(
@@ -264,9 +272,9 @@ pub enum CsvError {
     FailedToOpenFile(PathBuf),
 
     #[error(
-        "The CSV's columns do not match the expected columns."
+        "These expected columns were missing from the CSV {0:?}: {1:?}."
     )]
-    ColumnsMismatch,
+    ColumnsMismatch(String, Vec<String>),
 
     #[error("Encountered a column value/struct field of an unknown type: {0} -> {1:?}")]
     UnhandledType(String, Value),

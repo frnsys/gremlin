@@ -12,6 +12,7 @@ use std::{
         Sub,
         SubAssign,
     },
+    path::Path,
     str::FromStr,
 };
 
@@ -65,6 +66,23 @@ impl<N, const U: usize> Array<N, U> {
     {
         let arr = self.0.map(|v| M::from(v));
         Array(arr)
+    }
+
+    /// Write this array to a CSV.
+    pub fn to_csv<P: AsRef<Path>>(
+        &self,
+        column_name: &str,
+        path: P,
+    ) where
+        N: ToString,
+    {
+        let mut w = csv::Writer::from_path(path).unwrap();
+        let headers = [column_name];
+        w.write_record(headers);
+        for value in self.iter() {
+            w.write_record([value.to_string()]);
+        }
+        w.flush().unwrap();
     }
 }
 

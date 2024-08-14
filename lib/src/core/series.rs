@@ -75,6 +75,18 @@ impl Interval for Annual {
     }
 }
 
+/// An hourly interval for a time series.
+pub struct Hourly;
+impl Interval for Hourly {
+    type KeySize = U<1>;
+    type Key = (u16,);
+
+    fn key_columns() -> GenericArray<&'static str, Self::KeySize>
+    {
+        ["hour"].into()
+    }
+}
+
 /// This time series is basically just a `Vec`
 /// and provides no guarantees about data contiguity;
 /// for contiguous data see [`FullTimeSeries`] instead.
