@@ -32,8 +32,6 @@ use thiserror::Error;
 use time::{Date, OffsetDateTime, Time};
 use tracing::warn;
 
-use crate::core::*;
-
 /// Defines the maximum number of attempts
 /// in producing valid samples (i.e. those
 /// where all variables satisfy their constraints)

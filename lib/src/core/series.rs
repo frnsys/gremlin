@@ -61,7 +61,7 @@ pub trait Interval {
     fn key_columns() -> GenericArray<&'static str, Self::KeySize>;
 }
 
-type Key<I: Interval> = GenericArray<u16, I::KeySize>;
+type Key<I> = GenericArray<u16, <I as Interval>::KeySize>;
 
 /// An annual interval for a time series.
 pub struct Annual;
@@ -129,22 +129,26 @@ impl<T, I: Interval> TimeSeries<T, I> {
     /// the columns, see [`Interval`].
     ///
     /// The value column will always be named "value".
-    pub fn to_csv<P: AsRef<Path>>(&self, path: P)
+    pub fn to_csv<P: AsRef<Path>>(
+        &self,
+        path: P,
+    ) -> csv::Result<()>
     where
         T: ToString,
     {
-        let mut w = csv::Writer::from_path(path).unwrap();
+        let mut w = csv::Writer::from_path(path)?;
         let headers =
             [I::key_columns().as_slice(), &["value"]].concat();
-        w.write_record(headers);
+        w.write_record(headers)?;
         for (keys, value) in &self.data {
             let keys: Key<I> = (*keys).into();
             let mut row: Vec<String> =
                 keys.map(|k| k.to_string()).to_vec();
             row.push(value.to_string());
-            w.write_record(row);
+            w.write_record(row)?;
         }
-        w.flush().unwrap();
+        w.flush()?;
+        Ok(())
     }
 }
 

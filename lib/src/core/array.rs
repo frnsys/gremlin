@@ -73,16 +73,18 @@ impl<N, const U: usize> Array<N, U> {
         &self,
         column_name: &str,
         path: P,
-    ) where
+    ) -> csv::Result<()>
+    where
         N: ToString,
     {
-        let mut w = csv::Writer::from_path(path).unwrap();
+        let mut w = csv::Writer::from_path(path)?;
         let headers = [column_name];
-        w.write_record(headers);
+        w.write_record(headers)?;
         for value in self.iter() {
-            w.write_record([value.to_string()]);
+            w.write_record([value.to_string()])?;
         }
-        w.flush().unwrap();
+        w.flush()?;
+        Ok(())
     }
 }
 

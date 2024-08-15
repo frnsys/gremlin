@@ -6,7 +6,7 @@
 use std::sync::LazyLock;
 
 use anyhow::Result;
-use chrono::{NaiveDateTime, TimeZone};
+use chrono::{DateTime, TimeZone};
 pub use chrono_tz::Tz;
 use csv::{Reader, ReaderBuilder};
 use geo::{point, prelude::HaversineDistance, Point};
@@ -27,9 +27,8 @@ pub fn to_local(
     zone: &Tz,
 ) -> OffsetDateTime {
     let ns = dt.unix_timestamp_nanos();
-    let ndt = NaiveDateTime::from_timestamp_nanos(ns as i64)
-        .expect("We have a valid unix timestamp");
-    let local = zone.from_utc_datetime(&ndt);
+    let ndt = DateTime::from_timestamp_nanos(ns as i64);
+    let local = zone.from_utc_datetime(&ndt.naive_utc());
     OffsetDateTime::from_unix_timestamp_nanos(
         local
             .timestamp_nanos_opt()
