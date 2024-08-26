@@ -11,7 +11,7 @@
 use std::{
     collections::BTreeMap,
     marker::PhantomData,
-    ops::{Add, Deref, Index, IndexMut},
+    ops::{Add, Deref},
     path::Path,
 };
 
@@ -69,8 +69,7 @@ impl Interval for Annual {
     type KeySize = U<1>;
     type Key = (u16,);
 
-    fn key_columns() -> GenericArray<&'static str, Self::KeySize>
-    {
+    fn key_columns() -> GenericArray<&'static str, Self::KeySize> {
         ["year"].into()
     }
 }
@@ -81,8 +80,7 @@ impl Interval for Hourly {
     type KeySize = U<1>;
     type Key = (u16,);
 
-    fn key_columns() -> GenericArray<&'static str, Self::KeySize>
-    {
+    fn key_columns() -> GenericArray<&'static str, Self::KeySize> {
         ["hour"].into()
     }
 }
@@ -129,10 +127,7 @@ impl<T, I: Interval> TimeSeries<T, I> {
     /// the columns, see [`Interval`].
     ///
     /// The value column will always be named "value".
-    pub fn to_csv<P: AsRef<Path>>(
-        &self,
-        path: P,
-    ) -> csv::Result<()>
+    pub fn to_csv<P: AsRef<Path>>(&self, path: P) -> csv::Result<()>
     where
         T: ToString,
     {
@@ -178,12 +173,9 @@ impl<N: Clone, I: Interval, const U: usize>
             .map(|(key, arr)| {
                 arr.iter().enumerate().map(|(i, val)| {
                     let key: Key<I> = (*key).into();
-                    let key =
-                        [key.as_slice(), &[i as u16]].concat();
-                    let key: J::Key = key
-                        .into_iter()
-                        .collect_tuple()
-                        .unwrap();
+                    let key = [key.as_slice(), &[i as u16]].concat();
+                    let key: J::Key =
+                        key.into_iter().collect_tuple().unwrap();
                     (key, val.clone())
                 })
             })
@@ -214,10 +206,7 @@ impl<T: std::fmt::Debug, I: Interval> std::fmt::Debug
 where
     I::Key: std::fmt::Debug,
 {
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "TimeSeries<{}, {}> [{:?}]",
@@ -231,9 +220,7 @@ where
 impl<T, I: Interval, K: Into<I::Key>> FromIterator<(K, T)>
     for TimeSeries<T, I>
 {
-    fn from_iter<IT: IntoIterator<Item = (K, T)>>(
-        iter: IT,
-    ) -> Self {
+    fn from_iter<IT: IntoIterator<Item = (K, T)>>(iter: IT) -> Self {
         Self {
             data: iter
                 .into_iter()

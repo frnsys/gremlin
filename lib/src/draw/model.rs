@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 #[cfg(feature = "plotting")]
-use infra_plot::{
+use crate::plot::{
     CatScatterItem,
     Plots,
     ScatterItem,
@@ -83,10 +83,8 @@ impl PmlModel {
         columns: &[ImputedColumn],
         save_dir: PathBuf,
     ) -> Result<PmlModel> {
-        let cols: Vec<_> = columns
-            .iter()
-            .map(|col| col.name.to_string())
-            .collect();
+        let cols: Vec<_> =
+            columns.iter().map(|col| col.name.to_string()).collect();
         let mut df = CsvReader::from_path(csv_path)?
             .has_header(true)
             .with_row_count(Some(RowCount {
@@ -103,8 +101,7 @@ impl PmlModel {
                 let n = df[name].len();
                 let percent = (nulls as f32 / n as f32) * 100.;
 
-                if let Some(impute_strat) = &column.impute_with
-                {
+                if let Some(impute_strat) = &column.impute_with {
                     info!(
                         "Column \"{name}\" has {nulls} ({percent:.2}%) null values, imputing with: {:?}.",
                         impute_strat
@@ -130,22 +127,15 @@ impl PmlModel {
     /// Fit/train the model. This isn't necessary
     /// if the model has already been fit and loaded.
     pub fn fit(&mut self, iters: usize) {
-        let run_config = EngineUpdateConfig::new()
-            .n_iters(iters)
-            .transitions(vec![
+        let run_config =
+            EngineUpdateConfig::new().n_iters(iters).transitions(vec![
                 // See <https://github.com/promised-ai/lace/issues/148>
                 // > Currently Engine::run uses slice for row and column transitions, which can be slow to converge for large tables because they don't propose large moves. We should use both slice and sams on the rows and gibbs as default for columns.
-                StateTransition::ColumnAssignment(
-                    ColAssignAlg::Gibbs,
-                ),
+                StateTransition::ColumnAssignment(ColAssignAlg::Gibbs),
                 StateTransition::StateAlpha,
-                StateTransition::RowAssignment(
-                    RowAssignAlg::Sams,
-                ),
+                StateTransition::RowAssignment(RowAssignAlg::Sams),
                 StateTransition::ComponentParams,
-                StateTransition::RowAssignment(
-                    RowAssignAlg::Slice,
-                ),
+                StateTransition::RowAssignment(RowAssignAlg::Slice),
                 StateTransition::ComponentParams,
                 StateTransition::ViewAlphas,
                 StateTransition::FeaturePriors,
@@ -156,47 +146,35 @@ impl PmlModel {
 
         // Create missing parent directories if needed
         fs::create_dir_all(
-            self.save_dir
-                .parent()
-                .expect("Has a parent directory"),
+            self.save_dir.parent().expect("Has a parent directory"),
         )
         .expect("Can create parent directories");
         self.engine
             .save(&self.save_dir, SerializedType::Yaml)
             .unwrap();
-        write_yaml(
-            &self.columns,
-            &self.save_dir.join("columns.yml"),
-        );
+        write_yaml(&self.columns, &self.save_dir.join("columns.yml"));
     }
 
     /// Plot the MCMC log-likelihoods of the model,
     /// to verify if the model has converged.
     #[cfg(feature = "plotting")]
-    pub fn plot_convergences(
-        &self,
-        save_path: &Path,
-    ) -> Result<()> {
+    pub fn plot_convergences(&self, save_path: &Path) -> Result<()> {
         let pattern = self.save_dir.join("*.diagnostics.csv");
-        let paths =
-            glob::glob(pattern.as_os_str().to_str().unwrap())
-                .expect("Failed to read glob pattern")
-                .collect::<Result<Vec<PathBuf>, _>>()?;
+        let paths = glob::glob(pattern.as_os_str().to_str().unwrap())
+            .expect("Failed to read glob pattern")
+            .collect::<Result<Vec<PathBuf>, _>>()?;
 
         let lines: Vec<(String, Vec<f32>)> = paths
             .into_iter()
             .enumerate()
             .map(|(i, path)| {
-                let vals: Vec<f32> =
-                    CsvReader::from_path(path)?
-                        .has_header(true)
-                        .finish()?
-                        .column("loglike")?
-                        .iter()
-                        .map(|v| {
-                            v.try_extract::<f32>().unwrap()
-                        })
-                        .collect();
+                let vals: Vec<f32> = CsvReader::from_path(path)?
+                    .has_header(true)
+                    .finish()?
+                    .column("loglike")?
+                    .iter()
+                    .map(|v| v.try_extract::<f32>().unwrap())
+                    .collect();
                 Ok((i.to_string(), vals))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -217,12 +195,8 @@ impl PmlModel {
     /// (specifically the [dependency probability](https://www.lace.dev/pcc/depprob.html))
     /// between two variables.
     #[cfg(feature = "plotting")]
-    pub fn plot_dep_matrix(
-        &self,
-        save_path: &Path,
-    ) -> Result<()> {
-        let cols: Vec<_> =
-            self.columns.iter().skip(1).collect();
+    pub fn plot_dep_matrix(&self, save_path: &Path) -> Result<()> {
+        let cols: Vec<_> = self.columns.iter().skip(1).collect();
         let oracle = Oracle::from_engine(self.engine.clone());
         let mut data = vec![];
         for (i, col) in cols.iter().enumerate() {
@@ -242,11 +216,8 @@ impl PmlModel {
             }
         }
 
-        let col_names: Vec<_> = self
-            .columns
-            .iter()
-            .map(|c| c.name.as_str())
-            .collect();
+        let col_names: Vec<_> =
+            self.columns.iter().map(|c| c.name.as_str()).collect();
         StaticChart::<()>::correlation(&col_names, data)
             .with_title("PML Dependency Matrix")
             .render((1200, 800), save_path);
@@ -261,15 +232,10 @@ impl PmlModel {
         columns: &[&'a str],
     ) -> Result<Vec<HashMap<&str, f32>>, SamplerError> {
         if self.sampler.is_none() {
-            let columns = self
-                .columns
-                .iter()
-                .map(|c| c.column.clone())
-                .collect();
-            self.sampler = Some(Sampler::new(
-                self.engine.clone(),
-                columns,
-            ));
+            let columns =
+                self.columns.iter().map(|c| c.column.clone()).collect();
+            self.sampler =
+                Some(Sampler::new(self.engine.clone(), columns));
         }
         self.sampler
             .as_ref()
@@ -289,10 +255,7 @@ impl PmlModel {
 }
 
 /// Load an existing engine or initialize a new one.
-fn prepare_engine(
-    save_dir: &Path,
-    df: DataFrame,
-) -> Result<Engine> {
+fn prepare_engine(save_dir: &Path, df: DataFrame) -> Result<Engine> {
     if save_dir.exists() {
         Ok(Engine::load(save_dir)?)
     } else {
@@ -373,8 +336,7 @@ pub fn plot_pml_samples(
     let df = CsvReader::from_path(pml_input_path)?
         .has_header(true)
         .finish()?;
-    let series =
-        df.column(group_col).unwrap().unique_stable().unwrap();
+    let series = df.column(group_col).unwrap().unique_stable().unwrap();
     let group_names: Vec<&str> =
         series.str().unwrap().into_no_null_iter().collect();
 
@@ -386,8 +348,7 @@ pub fn plot_pml_samples(
             sample_cols,
         )?;
 
-        let mut datas: HashMap<&str, Vec<f32>> =
-            HashMap::default();
+        let mut datas: HashMap<&str, Vec<f32>> = HashMap::default();
         for row in sample {
             for (col, val) in row.iter() {
                 let v = datas.entry(col).or_default();

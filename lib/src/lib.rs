@@ -18,9 +18,11 @@ pub mod docs;
 pub mod draw;
 pub mod file;
 pub mod id;
-pub mod plot;
 pub mod record;
 pub mod util;
+
+#[cfg(feature = "plotting")]
+pub mod plot;
 
 pub use gremlin_macros::*;
 pub use paste;

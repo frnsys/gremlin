@@ -12,6 +12,8 @@ mod series;
 // polars dependency can be quite heavy.
 #[cfg(feature = "imputing")]
 pub mod impute;
+
+#[cfg(feature = "imputing")]
 pub use impute::*;
 
 pub use cache::*;
