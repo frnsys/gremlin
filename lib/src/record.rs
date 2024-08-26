@@ -201,12 +201,7 @@ pub enum RecorderData {
     Multiple(Vec<Vec<(String, f32)>>),
 }
 impl RecorderData {
-    pub fn save_csv(
-        &self,
-        start_year: u16,
-        units: &str,
-        path: &Path,
-    ) {
+    pub fn save_csv(&self, start_year: u16, units: &str, path: &Path) {
         let records: Vec<Record> = match self {
             Self::Single(data) => data
                 .iter()
@@ -222,13 +217,11 @@ impl RecorderData {
                 .iter()
                 .enumerate()
                 .flat_map(|(i, vals)| {
-                    vals.iter().map(move |(label, val)| {
-                        Record {
-                            year: start_year + i as u16,
-                            facet: label.to_string(),
-                            value: *val,
-                            units,
-                        }
+                    vals.iter().map(move |(label, val)| Record {
+                        year: start_year + i as u16,
+                        facet: label.to_string(),
+                        value: *val,
+                        units,
                     })
                 })
                 .collect(),
@@ -255,9 +248,7 @@ impl RecorderDataType for f32 {
     fn append_to(self, data: &mut RecorderData) {
         match data {
             RecorderData::Single(vals) => vals.push(self),
-            _ => panic!(
-                "RecorderDataType -> RecorderData mismatch"
-            ),
+            _ => panic!("RecorderDataType -> RecorderData mismatch"),
         }
     }
 }
@@ -269,25 +260,25 @@ impl RecorderDataType for Vec<(String, f32)> {
     fn append_to(self, data: &mut RecorderData) {
         match data {
             RecorderData::Multiple(vals) => vals.push(self),
-            _ => panic!(
-                "RecorderDataType -> RecorderData mismatch"
-            ),
+            _ => panic!("RecorderDataType -> RecorderData mismatch"),
         }
     }
 }
 
 /// Initialize new singleton data.
-pub fn init_singleton_data<T: RecorderDataType>() -> RecorderData
-{
+#[doc(hidden)]
+pub fn init_singleton_data<T: RecorderDataType>() -> RecorderData {
     T::new_data()
 }
 
 /// Initialize new group data.
+#[doc(hidden)]
 pub fn init_group_data<T: RecorderDataType>() -> RecorderData {
     T::new_data()
 }
 
 /// Initialize new entity data.
+#[doc(hidden)]
 pub fn init_entity_data<T: RecorderDataType>() -> RecorderData
 where
     Vec<(String, T)>: RecorderDataType,
@@ -297,11 +288,7 @@ where
 
 /// Collects the recorded data for a singleton (i.e. one datapoint per step)
 /// of this step.
-pub fn update_singleton_recorder<
-    S: Snapshot,
-    E,
-    T: RecorderDataType,
->(
+pub fn update_singleton_recorder<S: Snapshot, E, T: RecorderDataType>(
     data: &mut RecorderData,
     snapshot: &S,
     mut extract_fn: impl FnMut(&E, &S::Context) -> T,
@@ -309,8 +296,7 @@ pub fn update_singleton_recorder<
     S: SnapshotGet<E>,
 {
     let singleton = SnapshotGet::<E>::get(snapshot);
-    extract_fn(singleton, snapshot.get_context())
-        .append_to(data);
+    extract_fn(singleton, snapshot.get_context()).append_to(data);
 }
 
 /// Collects the recorded data from a collection of entities, e.g.
@@ -363,11 +349,7 @@ pub fn update_entity_recorder<
 /// rather than individually.
 ///
 /// Like the singleton recorder this gives us one datapoint per step.
-pub fn update_group_recorder<
-    S: Snapshot,
-    G,
-    T: RecorderDataType,
->(
+pub fn update_group_recorder<S: Snapshot, G, T: RecorderDataType>(
     data: &mut RecorderData,
     snapshot: &S,
     mut extract_fn: impl FnMut(&G, &S::Context) -> T,

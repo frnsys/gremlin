@@ -43,15 +43,15 @@ pub fn read_rows<'a, const N: usize>(
     let mut rdr = csv::Reader::from_path(path)?;
     let headers = rdr.headers().expect("Should have headers");
     let idxs: [usize; N] = columns.map(|col| {
-        headers.iter().position(|field| field == col).expect(
-            &format!("Couldn't find column \"{}\"", col),
-        )
+        headers
+            .iter()
+            .position(|field| field == col)
+            .expect(&format!("Couldn't find column \"{}\"", col))
     });
     let mut results = vec![];
     for result in rdr.records() {
         let record = result?;
-        let row: [String; N] =
-            idxs.map(|idx| record[idx].to_string());
+        let row: [String; N] = idxs.map(|idx| record[idx].to_string());
         results.push(row);
     }
     Ok(results)
@@ -97,10 +97,9 @@ pub fn read_flat_csv<
     let ref_cols: Vec<&String> = json_obj.keys().collect();
     let path = path.as_ref();
 
-    let mut reader =
-        csv::Reader::from_path(path).map_err(|_err| {
-            CsvError::FailedToOpenFile(path.to_path_buf())
-        })?;
+    let mut reader = csv::Reader::from_path(path).map_err(|_err| {
+        CsvError::FailedToOpenFile(path.to_path_buf())
+    })?;
 
     let cols: Vec<String> = reader
         .headers()
@@ -129,12 +128,9 @@ pub fn read_flat_csv<
 
     let mut data = vec![];
     for rec in reader.records() {
-        let rec =
-            rec.map_err(|_err| CsvError::FailedToReadRecord)?;
+        let rec = rec.map_err(|_err| CsvError::FailedToReadRecord)?;
         let mut map = serde_json::Map::new();
-        for (idx, typ) in
-            multizip((idxs.iter(), json_obj.values()))
-        {
+        for (idx, typ) in multizip((idxs.iter(), json_obj.values())) {
             let val = &rec[*idx];
             let col = &cols[*idx];
             match typ {
@@ -173,15 +169,14 @@ pub fn read_flat_csv<
                 }
             }
         }
-        let obj: T =
-            serde_json::from_value(Value::Object(map))?;
+        let obj: T = serde_json::from_value(Value::Object(map))?;
         data.push(obj);
     }
     Ok(data)
 }
 
 /// A hacky way to serialize a type to a flattened CSV representation.
-/// See [`deserialize_flat_csv`] for more details.
+/// See [`read_flat_csv`] for more details.
 pub fn write_flat_csv<
     T: Serialize + Default,
     P: AsRef<Path> + std::fmt::Debug,
@@ -190,13 +185,10 @@ pub fn write_flat_csv<
     items: &[T],
 ) -> Result<(), CsvError> {
     tracing::debug!("Serializing CSV: {:#?}", path);
-    let mut w = csv::Writer::from_path(path.as_ref()).map_err(
-        |_err| {
-            CsvError::FailedToOpenFile(
-                path.as_ref().to_path_buf(),
-            )
-        },
-    )?;
+    let mut w =
+        csv::Writer::from_path(path.as_ref()).map_err(|_err| {
+            CsvError::FailedToOpenFile(path.as_ref().to_path_buf())
+        })?;
 
     let ref_val = T::default();
     let json_val = serde_json::to_value(&ref_val)?;
@@ -220,9 +212,7 @@ pub fn write_flat_csv<
                 // quotes to be added when writing to a CSV.
                 // So to avoid that we strip the quotes if present.
                 let string = v.to_string();
-                if string.starts_with('"')
-                    && string.ends_with('"')
-                {
+                if string.starts_with('"') && string.ends_with('"') {
                     string[1..string.len() - 1].to_string()
                 } else {
                     string
@@ -249,21 +239,16 @@ pub fn write_yaml<D: Serialize>(d: &D, path: &Path) {
         .create(true)
         .truncate(true)
         .open(path)
-        .expect(&format!(
-            "Couldn't open file for writing: {path:#?}"
-        ));
-    serde_yaml::to_writer(f, d).expect(&format!(
-        "Couldn't write yaml to file: {path:#?}"
-    ));
+        .expect(&format!("Couldn't open file for writing: {path:#?}"));
+    serde_yaml::to_writer(f, d)
+        .expect(&format!("Couldn't write yaml to file: {path:#?}"));
 }
 
 pub fn read_yaml<T: DeserializeOwned>(path: &Path) -> T {
-    let file = File::open(path).expect(&format!(
-        "Couldn't open file for reading: {path:#?}"
-    ));
-    serde_yaml::from_reader(file).expect(&format!(
-        "Couldn't read yaml from file: {path:#?}"
-    ))
+    let file = File::open(path)
+        .expect(&format!("Couldn't open file for reading: {path:#?}"));
+    serde_yaml::from_reader(file)
+        .expect(&format!("Couldn't read yaml from file: {path:#?}"))
 }
 
 #[derive(Debug, Error)]

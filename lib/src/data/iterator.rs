@@ -3,6 +3,8 @@ use extend::ext;
 use rayon::iter::{ParallelBridge, ParallelIterator};
 use std::hash::Hash;
 
+/// Trait providing a method to group an iterator's
+/// items by some key function.
 pub trait Rows: Iterator {
     /// Group rows according to the provided key function.
     /// Rows that return the same key will be grouped together.
@@ -13,8 +15,7 @@ pub trait Rows: Iterator {
     where
         Self: Sized,
     {
-        let mut map: HashMap<K, Vec<Self::Item>> =
-            HashMap::default();
+        let mut map: HashMap<K, Vec<Self::Item>> = HashMap::default();
         for (key, row) in self
             .map(|row| {
                 let key = key_fn(&row);
@@ -29,6 +30,8 @@ pub trait Rows: Iterator {
 }
 impl<I: Iterator> Rows for I {}
 
+/// Provides methods for filtering, mapping,
+/// and merging [`HashMap`]s.
 #[ext(name=HashMapExt)]
 pub impl<K: Hash + Eq, V> HashMap<K, V> {
     /// Filter out groups that fail to satisfy the provided predicate.
@@ -85,12 +88,11 @@ pub impl<K: Hash + Eq, V> HashMap<K, Vec<V>> {
         self,
         f: impl Fn(&K, V) -> U + Send + Sync,
     ) -> HashMap<K, Vec<U>> {
-        self.map(|k, vs| {
-            vs.into_iter().map(|v| f(k, v)).collect()
-        })
+        self.map(|k, vs| vs.into_iter().map(|v| f(k, v)).collect())
     }
 }
 
+#[doc(hidden)]
 pub trait Float {
     fn to_f32(&self) -> f32;
 }
@@ -150,6 +152,7 @@ pub trait IterExt<T: Float>: Iterator<Item = T> {
 }
 impl<T, F: Float> IterExt<F> for T where T: Iterator<Item = F> {}
 
+/// Methods for getting the min/max of a `Vec<f32>`.
 #[ext]
 pub impl Vec<f32> {
     /// Get the minimum element.
@@ -169,6 +172,7 @@ pub impl Vec<f32> {
     }
 }
 
+/// Map-reduce on an iterator.
 pub fn mapreduce<T: Send + Sync, U: Send + Sync, V: Send>(
     iter: impl Iterator<Item = T> + Send + ParallelBridge,
     map: impl Fn(T) -> U + Send + Sync,

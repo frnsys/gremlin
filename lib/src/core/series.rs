@@ -48,7 +48,7 @@ pub enum Lerp {
 /// the length of the `Key` tuple, using `typenum`'s `U`
 /// type, e.g. for the previous example you'd use `U<2>`.
 ///
-/// Finally, the [`key_columns`] method should return the
+/// Finally, the [`Interval::key_columns`] method should return the
 /// names of each tuple element. For the previous example
 /// you'd use something like `["year", "hour"].into()`.
 /// This is used to name columns when writing to CSVs

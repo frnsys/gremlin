@@ -22,8 +22,7 @@ pub fn deserialize_delimited_list<
 where
     D: Deserializer<'de>,
 {
-    let string: String =
-        Deserialize::deserialize(deserializer)?;
+    let string: String = Deserialize::deserialize(deserializer)?;
     let mut vals = vec![];
     for s in string.split(S) {
         let s = s.trim();
@@ -66,6 +65,7 @@ where
     }
 }
 
+/// Deserialize a nullable [`Unit`] value.
 pub fn deserialize_nullable_unit<'de, D, U: Unit>(
     deserializer: D,
 ) -> Result<Option<U>, D::Error>

@@ -18,6 +18,7 @@ use super::partial::{FromPartial, HydrateError};
 
 /// A hydrator defines a means of producing a fully-hydrated `T`
 /// from potentially several different data sources.
+/// See [`Source`] and [`Tributary`].
 #[derive(Debug)]
 pub struct Hydrator<T>
 where
@@ -36,10 +37,8 @@ impl<T> Hydrator<T>
 where
     T: Debug + FromPartial,
 {
-    pub fn run(
-        &self,
-        start_year: u16,
-    ) -> Result<Vec<T>, HydrateError> {
+    /// Run this hydrator using the provided year as `t=0`.
+    pub fn run(&self, start_year: u16) -> Result<Vec<T>, HydrateError> {
         let mut items = self.source.generate(start_year)?;
         for trib in &self.tributaries {
             trib.fill(&mut items)?;
@@ -54,6 +53,7 @@ where
 }
 
 /// A `Source` produces the initial population of partial `T`s.
+/// See [`Hydrator`].
 pub trait Source<T>: Debug
 where
     T: FromPartial,
@@ -65,6 +65,7 @@ where
 }
 
 /// A `Tributary` fills in fields in the population of partial `T`s.
+/// See [`Hydrator`].
 pub trait Tributary<T>: Debug
 where
     T: FromPartial,

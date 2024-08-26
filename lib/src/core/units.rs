@@ -40,16 +40,8 @@ pub trait Unit: Debug + From<f32> {
     fn value_mut(&mut self) -> &mut f32;
 }
 
-pub struct Zero<const N: usize>;
-pub struct Foo;
-
-impl PartialEq<Zero<0>> for Foo {
-    fn eq(&self, _: &Zero<0>) -> bool {
-        0 == 0
-    }
-}
-
 /// Implement all the traits necessary for to implement [`Numeric`].
+#[doc(hidden)]
 #[macro_export]
 macro_rules! impl_numeric {
     ($type:ty$(, $($bounds:tt)*)?) => {
@@ -309,6 +301,7 @@ impl<N: Unit, M: Unit> Unit for Product<N, M> {
 /// i.e. `impl std::ops::Div<A> for A`, which is the conflicting implementation,
 /// we skip it. The [`non_identity_pairs!`] proc macro handles this looping part,
 /// and then this macro is what's given as the impl block for each non-identity type pair.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! impl_concrete_ops {
     ($a:ty, $b:ty $(, $($bounds:tt)*)?) => {
@@ -343,6 +336,7 @@ macro_rules! impl_concrete_ops {
 }
 
 /// Other unit-specific trait implementations.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! impl_ops {
     ($type:ty$(, $($bounds:tt)*)?) => {
@@ -412,9 +406,7 @@ impl<M: Unit, N: Unit> std::ops::Div<M> for Product<N, M> {
 
 /// Canceling out the denominator of an `Ratio`,
 /// i.e. `A/B * B = A`.
-impl<N: BaseUnit, D: BaseUnit> std::ops::Mul<D>
-    for Ratio<N, D>
-{
+impl<N: BaseUnit, D: BaseUnit> std::ops::Mul<D> for Ratio<N, D> {
     type Output = N;
     fn mul(self, rhs: D) -> Self::Output {
         (self.value() * rhs.value()).into()
@@ -424,8 +416,8 @@ impl<N: BaseUnit, D: BaseUnit> std::ops::Mul<D>
 // Handling some more specific cases.
 // TODO Perhaps use a macro to implement a bunch of these?
 /// A/BC * BC -> A
-impl<A: BaseUnit, B: BaseUnit, C: BaseUnit>
-    std::ops::Mul<Product<B, C>> for Ratio<A, Product<B, C>>
+impl<A: BaseUnit, B: BaseUnit, C: BaseUnit> std::ops::Mul<Product<B, C>>
+    for Ratio<A, Product<B, C>>
 {
     type Output = A;
     fn mul(self, rhs: Product<B, C>) -> Self::Output {
@@ -754,9 +746,7 @@ impl<N: Unit, D: SIUnit> Ratio<N, D> {
 impl<U: SIUnit, N: Unit, M: Unit> Ratio<Product<U, M>, N> {
     /// Change the prefix of a product-unit numerator.
     /// E.g. `MWh/$ -> kWh/$`
-    pub fn num_to<O: Prefix>(
-        &self,
-    ) -> Ratio<Product<U::Output, M>, N>
+    pub fn num_to<O: Prefix>(&self) -> Ratio<Product<U::Output, M>, N>
     where
         U: ConvertPrefix<O>,
     {
@@ -771,9 +761,7 @@ impl<U: SIUnit, N: Unit, M: Unit> Ratio<Product<U, M>, N> {
 impl<N: Unit, M: Unit, U: SIUnit> Ratio<N, Product<U, M>> {
     /// Change the prefix of a product-unit denominator.
     /// E.g. `$/MWh -> $/kWh`
-    pub fn den_to<O: Prefix>(
-        &self,
-    ) -> Ratio<N, Product<U::Output, M>>
+    pub fn den_to<O: Prefix>(&self) -> Ratio<N, Product<U::Output, M>>
     where
         U: ConvertPrefix<O>,
     {
@@ -956,18 +944,12 @@ mod tests {
         let d_mwh = d_MWh::from(1.);
         assert_eq!(d_mwh.den_to::<Kilo>(), d_kWh::from(0.001));
         assert_eq!(d_mwh.den_to::<Giga>(), d_GWh::from(1000.));
-        assert_eq!(
-            d_mwh.den_to::<Tera>(),
-            d_TWh::from(1000000.)
-        );
+        assert_eq!(d_mwh.den_to::<Tera>(), d_TWh::from(1000000.));
 
         let mwh_d = MWh_d::from(1.);
         assert_eq!(mwh_d.num_to::<Kilo>(), kWh_d::from(1000.));
         assert_eq!(mwh_d.num_to::<Giga>(), GWh_d::from(0.001));
-        assert_eq!(
-            mwh_d.num_to::<Tera>(),
-            TWh_d::from(0.000001)
-        );
+        assert_eq!(mwh_d.num_to::<Tera>(), TWh_d::from(0.000001));
     }
 
     #[test]

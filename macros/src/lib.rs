@@ -99,17 +99,15 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
 
     let name = input.ident; // Original struct name
     let partial_name = format!("Partial{}", name); // Partial<Name> name
-    let partial_ident =
-        syn::Ident::new(&partial_name, name.span()); // Create an identifier for the new name
-                                                     //
+    let partial_ident = syn::Ident::new(&partial_name, name.span()); // Create an identifier for the new name
+                                                                     //
     let mut field_names = vec![];
     let mut field_idents = vec![];
     let mut field_types = vec![];
     if let Data::Struct(data) = &input.data {
         if let Fields::Named(fields) = &data.fields {
             for f in &fields.named {
-                let name =
-                    f.ident.as_ref().unwrap().to_string();
+                let name = f.ident.as_ref().unwrap().to_string();
                 let ident = f.ident.as_ref().unwrap();
                 let ty = &f.ty;
                 field_names.push(name);
@@ -178,9 +176,7 @@ impl Parse for MacroInput {
         let content;
         bracketed!(content in input);
         let types =
-            Punctuated::<Type, Token![,]>::parse_terminated(
-                &content,
-            )?;
+            Punctuated::<Type, Token![,]>::parse_terminated(&content)?;
         let user_macro: Path = input.parse()?;
         Ok(MacroInput { types, user_macro })
     }
@@ -208,15 +204,14 @@ impl Parse for MacroInput {
 /// ```
 ///
 /// Would call `my_macro!(A, B)`, `my_macro!(A, C)`, etc.
+#[doc(hidden)]
 #[proc_macro]
 pub fn non_identity_pairs(input: TokenStream) -> TokenStream {
     let MacroInput { types, user_macro } =
         parse_macro_input!(input as MacroInput);
 
-    let extracted: Vec<_> = types
-        .into_iter()
-        .map(|ty| extract_generics(&ty))
-        .collect();
+    let extracted: Vec<_> =
+        types.into_iter().map(|ty| extract_generics(&ty)).collect();
     let mut blocks = proc_macro2::TokenStream::new();
     for (x, x_constraints) in &extracted {
         for (y, y_constraints) in &extracted {
@@ -229,11 +224,10 @@ pub fn non_identity_pairs(input: TokenStream) -> TokenStream {
                 .chain(y_constraints.iter())
                 .map(|con| con.to_token_stream().to_string())
                 .collect();
-            let constraints =
-                proc_macro2::TokenStream::from_str(
-                    &constraints.join(","),
-                )
-                .unwrap();
+            let constraints = proc_macro2::TokenStream::from_str(
+                &constraints.join(","),
+            )
+            .unwrap();
 
             // Only implement when `X != Y`.
             if x.to_token_stream().to_string()
@@ -258,14 +252,11 @@ fn extract_generics(ty: &Type) -> (Type, Option<Constraint>) {
     if let Type::Path(TypePath { path, .. }) = ty {
         for segment in &path.segments {
             let base = &segment.ident;
-            if let PathArguments::AngleBracketed(
-                angle_bracketed,
-            ) = &segment.arguments
+            if let PathArguments::AngleBracketed(angle_bracketed) =
+                &segment.arguments
             {
                 for arg in &angle_bracketed.args {
-                    if let GenericArgument::Constraint(
-                        constraint,
-                    ) = arg
+                    if let GenericArgument::Constraint(constraint) = arg
                     {
                         // To avoid name clashes, append the base type to the constraint types,
                         // e.g. `Foo<P: Bar>` changes `P` to `FooP`.
@@ -277,7 +268,12 @@ fn extract_generics(ty: &Type) -> (Type, Option<Constraint>) {
 
                         // Create the new type that we'll actually use,
                         // e.g. `Foo<P: Bar>` becomes `Foo<FooP>`.
-                        ret_ty = syn::parse_str::<Type>(&format!("{}<{}>", base.to_string(), generic)).expect("Failed to parse type with generics");
+                        ret_ty = syn::parse_str::<Type>(&format!(
+                            "{}<{}>",
+                            base.to_string(),
+                            generic
+                        ))
+                        .expect("Failed to parse type with generics");
                         // let bounds = constraint.bounds.to_token_stream().to_string();
                         // let bounds = format!("{}: {}", generic, bounds);
 
