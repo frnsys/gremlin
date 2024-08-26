@@ -28,6 +28,7 @@ pub trait Snapshot {
 
 /// This trait is used to extract (borrow)
 /// a type `T` from a [`Snapshot`].
+///
 /// For example, you have implemented `Snapshot`
 /// on some struct with a field `income: f32`.
 /// To extract the data you'd implement `SnapshotGet<f32>`
@@ -90,9 +91,9 @@ pub trait Recorder {
 ///
 /// - `singleton`: indicating only one of `T` is expected.
 /// - `entity`: indicating we expect a collection of `T`,
-/// and we record data for each instance individually.
+///     and we record data for each instance individually.
 /// - `group`: indicating we expect a collection of `T`, and we
-/// record data over the entire collection.
+///     record data over the entire collection.
 ///
 /// Note that [`Snapshot`] must implement [`SnapshotGet<T>`] as well, so
 /// we know how to get `T` from a model snapshot.
@@ -288,13 +289,15 @@ where
 
 /// Collects the recorded data for a singleton (i.e. one datapoint per step)
 /// of this step.
-pub fn update_singleton_recorder<S: Snapshot, E, T: RecorderDataType>(
+pub fn update_singleton_recorder<
+    S: Snapshot + SnapshotGet<E>,
+    E,
+    T: RecorderDataType,
+>(
     data: &mut RecorderData,
     snapshot: &S,
     mut extract_fn: impl FnMut(&E, &S::Context) -> T,
-) where
-    S: SnapshotGet<E>,
-{
+) {
     let singleton = SnapshotGet::<E>::get(snapshot);
     extract_fn(singleton, snapshot.get_context()).append_to(data);
 }
@@ -321,7 +324,7 @@ pub fn update_singleton_recorder<S: Snapshot, E, T: RecorderDataType>(
 /// in a static lookup table, thus allowing us to convert
 /// te names' `&str` to `&'static str`.
 pub fn update_entity_recorder<
-    S: Snapshot,
+    S: Snapshot + SnapshotGet<Vec<C>>,
     C: Named,
     T: RecorderDataType,
 >(
@@ -330,7 +333,6 @@ pub fn update_entity_recorder<
     mut extract_fn: impl FnMut(&C, &S::Context) -> T,
 ) where
     Vec<(String, T)>: RecorderDataType,
-    S: SnapshotGet<Vec<C>>,
 {
     let entities = SnapshotGet::<Vec<C>>::get(snapshot);
     let records: Vec<_> = entities
@@ -349,13 +351,15 @@ pub fn update_entity_recorder<
 /// rather than individually.
 ///
 /// Like the singleton recorder this gives us one datapoint per step.
-pub fn update_group_recorder<S: Snapshot, G, T: RecorderDataType>(
+pub fn update_group_recorder<
+    S: Snapshot + SnapshotGet<G>,
+    G,
+    T: RecorderDataType,
+>(
     data: &mut RecorderData,
     snapshot: &S,
     mut extract_fn: impl FnMut(&G, &S::Context) -> T,
-) where
-    S: SnapshotGet<G>,
-{
+) {
     let group = SnapshotGet::<G>::get(snapshot);
     extract_fn(group, snapshot.get_context()).append_to(data);
 }

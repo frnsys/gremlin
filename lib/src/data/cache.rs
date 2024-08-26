@@ -28,10 +28,7 @@ use tracing::info;
 /// ```
 /// cached_or("solar_capacity_factors", flows::solar_capacity_factors)?;
 /// ```
-pub fn cached_or<
-    T: DeserializeOwned + Serialize,
-    P: AsRef<Path>,
->(
+pub fn cached_or<T: DeserializeOwned + Serialize, P: AsRef<Path>>(
     dir: P,
     name: &str,
     f: impl Fn() -> Result<T>,
@@ -48,10 +45,7 @@ pub fn cached_or<
 }
 
 /// Force a overwrite of cached data.
-pub fn recache<
-    T: DeserializeOwned + Serialize,
-    P: AsRef<Path>,
->(
+pub fn recache<T: DeserializeOwned + Serialize, P: AsRef<Path>>(
     dir: &P,
     name: &str,
     data: T,
@@ -76,13 +70,10 @@ pub fn cached<T: DeserializeOwned, P: AsRef<Path>>(
     Ok(val)
 }
 
-fn cached_path<P: AsRef<Path>>(
-    dir: &P,
-    name: &str,
-) -> Result<PathBuf> {
+fn cached_path<P: AsRef<Path>>(dir: &P, name: &str) -> Result<PathBuf> {
     let dir: &Path = dir.as_ref();
     if !dir.exists() {
-        std::fs::create_dir_all(&dir)?;
+        std::fs::create_dir_all(dir)?;
     }
 
     let mut path = dir.join(name);

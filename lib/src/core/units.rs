@@ -47,7 +47,7 @@ macro_rules! impl_numeric {
     ($type:ty$(, $($bounds:tt)*)?) => {
         impl<$($($bounds)*)?> Clone for $type {
             fn clone(&self) -> Self {
-                Self::new(self.value())
+                *self
             }
         }
         impl<$($($bounds)*)?> Copy for $type {}
@@ -59,7 +59,7 @@ macro_rules! impl_numeric {
         }
         impl<$($($bounds)*)?> PartialOrd for $type {
             fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-                self.value().partial_cmp(&other.value())
+                Some(self.cmp(other))
             }
         }
         impl<$($($bounds)*)?> Eq for $type {}
@@ -154,9 +154,9 @@ macro_rules! impl_numeric {
                 Self::new(value)
             }
         }
-        impl<$($($bounds)*)?> Into<f32> for $type {
-            fn into(self) -> f32 {
-                self.value()
+        impl<$($($bounds)*)?> From<$type> for f32 {
+            fn from(value: $type) -> f32 {
+                value.value()
             }
         }
 

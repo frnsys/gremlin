@@ -88,8 +88,7 @@ impl ByYearHour<f32> {
     /// Iterate over each hour of each day throughout a year.
     /// The first iterated value is the hour of the year (0 to 8760)
     /// and the second is the hour of the day (0 to 24).
-    pub fn iter_hours() -> impl Iterator<Item = (usize, usize)>
-    {
+    pub fn iter_hours() -> impl Iterator<Item = (usize, usize)> {
         let range = 0..24;
         let n = range.len();
         range.cycle().take(365 * n).enumerate()
@@ -106,8 +105,6 @@ pub impl<K: Enum + EnumArray<V>, V: Clone> EnumMap<K, V> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_mean_day_hours() {
         // TODO

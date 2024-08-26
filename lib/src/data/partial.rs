@@ -3,17 +3,17 @@
 use anyhow::Error as AnyhowError;
 use thiserror::Error;
 
-/// This trait indicates this struct has an associated struct,
-/// `Partial`, which is the same as this struct except that
-/// all fields are wrapped in `Option`. You should not implement
+/// This trait indicates an associated struct, `Partial`,
+/// which is the same as this struct except that
+/// all fields are wrapped in `Option`.
+///
+/// You should not implement
 /// this trait yourself but instead use the [`Partial` derive macro](../../infra_macros/derive.Partial.html).
 pub trait FromPartial: Sized {
     type Partial;
 
     /// Create this struct from a fully-hydrated partial version.
-    fn from(
-        partial: Self::Partial,
-    ) -> Result<Self, HydrateError>;
+    fn from(partial: Self::Partial) -> Result<Self, HydrateError>;
 }
 
 #[derive(Debug, Error)]

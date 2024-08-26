@@ -145,7 +145,7 @@ impl<N: Numeric, I: Interval> TimeSeriesReader<N, I> {
                 None => match &self.missing_strategy {
                     MissingStrategy::Skip => continue,
                     MissingStrategy::Default(value) => {
-                        results.push((time, value.clone()));
+                        results.push((time, *value));
                     }
                 },
             }

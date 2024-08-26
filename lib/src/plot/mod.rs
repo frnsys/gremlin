@@ -85,6 +85,8 @@ const COLORS: &[&str] = &[
     "#ff8a45", "#8143cf", "#dd79ff", "#4a698c", "#e9d8a6",
 ];
 
+/// HACK: A wrapper to create a singleton `ImageRenderer`.
+///
 /// Rendering plots to images concurrently will result in a segfault, due to
 /// <https://github.com/denoland/deno_core/issues/150>,
 /// so we use this wrapper to ensure that only one instance of `ImageRenderer` exists.
@@ -92,8 +94,8 @@ pub struct SafeImageRenderer {
     sender: mpsc::Sender<((u32, u32), Chart)>,
     receiver: mpsc::Receiver<String>,
 }
-impl SafeImageRenderer {
-    pub fn new() -> Self {
+impl Default for SafeImageRenderer {
+    fn default() -> Self {
         let (command_sender, command_receiver) =
             mpsc::channel::<((u32, u32), Chart)>();
         let (response_sender, response_receiver) = mpsc::channel();
@@ -109,6 +111,11 @@ impl SafeImageRenderer {
             sender: command_sender,
             receiver: response_receiver,
         }
+    }
+}
+impl SafeImageRenderer {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn render_chart_svg(size: (u32, u32), chart: Chart) -> String {
@@ -627,7 +634,7 @@ impl<S: Style> StaticChart<S> {
         scatters: &[(String, Vec<(f32, f32)>)],
     ) -> Self {
         for (name, points) in scatters {
-            self = self.with_scatter(&name, points);
+            self = self.with_scatter(name, points);
         }
         self
     }

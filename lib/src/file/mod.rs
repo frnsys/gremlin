@@ -36,9 +36,9 @@ pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(
 /// Read raw rows from a CSV, specifying the column names.
 /// The column order doesn't need to match what's in the CSV;
 /// they will automatically be rearranged to match.
-pub fn read_rows<'a, const N: usize>(
+pub fn read_rows<const N: usize>(
     path: &Path,
-    columns: &[&'a str; N],
+    columns: &[&str; N],
 ) -> anyhow::Result<Vec<[String; N]>> {
     let mut rdr = csv::Reader::from_path(path)?;
     let headers = rdr.headers().expect("Should have headers");
@@ -46,7 +46,9 @@ pub fn read_rows<'a, const N: usize>(
         headers
             .iter()
             .position(|field| field == col)
-            .expect(&format!("Couldn't find column \"{}\"", col))
+            .unwrap_or_else(|| {
+                panic!(r#"Couldn't find column "{}""#, col)
+            })
     });
     let mut results = vec![];
     for result in rdr.records() {
@@ -57,19 +59,20 @@ pub fn read_rows<'a, const N: usize>(
     Ok(results)
 }
 
-/// This is a hacky way to deserialize a type from a CSV where its
+/// A hacky way to deserialize a type from a CSV where its
 /// nested structs are flattened.
+///
 /// Per [this issue](https://github.com/BurntSushi/rust-csv/issues/239)
 /// this is not something the `csv` crate will support.
 ///
 /// The way this works is:
 ///
 /// - We first serialize a default copy of the object to a JSON
-/// object so we learn the flattened column names and types.
-/// This is why `T` must implement both `Serialize` and `Default`.
+///     object so we learn the flattened column names and types.
+///     This is why `T` must implement both `Serialize` and `Default`.
 /// - We read the CSV and check that the columns look correct.
 /// - Then we parse each CSV record according to what we learned
-/// from the JSON-serialized example.
+///     from the JSON-serialized example.
 ///
 /// For this to work you must flatten fields that are structs and
 /// define a prefix:
@@ -239,16 +242,21 @@ pub fn write_yaml<D: Serialize>(d: &D, path: &Path) {
         .create(true)
         .truncate(true)
         .open(path)
-        .expect(&format!("Couldn't open file for writing: {path:#?}"));
-    serde_yaml::to_writer(f, d)
-        .expect(&format!("Couldn't write yaml to file: {path:#?}"));
+        .unwrap_or_else(|_| {
+            panic!("Couldn't open file for writing: {path:#?}")
+        });
+    serde_yaml::to_writer(f, d).unwrap_or_else(|_| {
+        panic!("Couldn't write yaml to file: {path:#?}")
+    });
 }
 
 pub fn read_yaml<T: DeserializeOwned>(path: &Path) -> T {
-    let file = File::open(path)
-        .expect(&format!("Couldn't open file for reading: {path:#?}"));
-    serde_yaml::from_reader(file)
-        .expect(&format!("Couldn't read yaml from file: {path:#?}"))
+    let file = File::open(path).unwrap_or_else(|_| {
+        panic!("Couldn't open file for reading: {path:#?}")
+    });
+    serde_yaml::from_reader(file).unwrap_or_else(|_| {
+        panic!("Couldn't read yaml from file: {path:#?}")
+    })
 }
 
 #[derive(Debug, Error)]

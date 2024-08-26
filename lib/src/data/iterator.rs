@@ -178,7 +178,6 @@ pub fn mapreduce<T: Send + Sync, U: Send + Sync, V: Send>(
     map: impl Fn(T) -> U + Send + Sync,
     reduce: impl Fn(Vec<U>) -> V + Send + Sync,
 ) -> V {
-    let to_reduce: Vec<U> =
-        iter.par_bridge().map(|chunk| map(chunk)).collect();
+    let to_reduce: Vec<U> = iter.par_bridge().map(map).collect();
     reduce(to_reduce)
 }

@@ -28,15 +28,15 @@ use serde::{de::DeserializeOwned, Serialize};
 /// included:
 ///
 /// - `Mul` and `MulAssign`
-/// because these operations are *NOT* equivalent when using units,
-/// e.g. `10m * 2m != 20m` but rather `20m^2`.
+///     because these operations are *NOT* equivalent when using units,
+///     e.g. `10m * 2m != 20m` but rather `20m^2`.
 /// - `DivAssign` because self-division does *NOT* preserve units,
-/// e.g. `10m/2m != 5m` but rather just `5`.
-/// However `Div` is ok but requires that it return a unitless `f32`,
-/// i.e. only `Div<Output = f32`.
+///     e.g. `10m/2m != 5m` but rather just `5`.
+///     However `Div` is ok but requires that it return a unitless `f32`,
+///     i.e. only `Div<Output = f32`.
 /// - `Add<f32>` and `Sub<f32>` (and `AddAssign<f32>` and `SubAssign<f32>`)
-/// because we want to be strict about ensuring only the same types can be
-/// added/subtracted (to enforce units).
+///     because we want to be strict about ensuring only the same types can be
+///     added/subtracted (to enforce units).
 pub trait Numeric:
     Sum
     + Add<Output = Self>

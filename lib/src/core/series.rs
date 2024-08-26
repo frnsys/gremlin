@@ -170,7 +170,7 @@ impl<N: Clone, I: Interval, const U: usize>
     {
         self.data
             .iter()
-            .map(|(key, arr)| {
+            .flat_map(|(key, arr)| {
                 arr.iter().enumerate().map(|(i, val)| {
                     let key: Key<I> = (*key).into();
                     let key = [key.as_slice(), &[i as u16]].concat();
@@ -179,7 +179,6 @@ impl<N: Clone, I: Interval, const U: usize>
                     (key, val.clone())
                 })
             })
-            .flatten()
             .collect()
     }
 }

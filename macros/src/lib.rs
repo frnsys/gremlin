@@ -26,8 +26,8 @@ use syn::{
     TypePath,
 };
 
-/// This macro provides a derive macro, `HasSchema`,
-/// which implements the [`HasSchema`](../gremlin/docs/trait.HasSchema.html) trait,
+/// The `HasSchema` derive marco,
+/// implementing [`HasSchema`](../gremlin/docs/trait.HasSchema.html),
 /// to automatically produce documentation about the expected
 /// CSV schema for deserializing to this struct.
 #[proc_macro_derive(HasSchema, attributes(serde))]
@@ -270,8 +270,7 @@ fn extract_generics(ty: &Type) -> (Type, Option<Constraint>) {
                         // e.g. `Foo<P: Bar>` becomes `Foo<FooP>`.
                         ret_ty = syn::parse_str::<Type>(&format!(
                             "{}<{}>",
-                            base.to_string(),
-                            generic
+                            base, generic
                         ))
                         .expect("Failed to parse type with generics");
                         // let bounds = constraint.bounds.to_token_stream().to_string();

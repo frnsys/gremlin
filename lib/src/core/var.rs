@@ -22,7 +22,7 @@ impl<T: Clone> ExogVariable<T> {
 
     /// Get the value defined for the next step.
     /// If the queue would be exhausted then the last value is re-used.
-    pub fn next(&mut self) -> T {
+    pub fn next_value(&mut self) -> T {
         if self.queue.len() == 1 {
             warn!("Exogenous variable will be exhausted. Will re-use the last available value.");
             self.queue[0].clone()
@@ -48,13 +48,13 @@ mod tests {
         let mut exog = ExogVariable::new(data);
 
         assert!(!exog.is_exhausted());
-        assert_eq!(exog.next(), 1);
-        assert_eq!(exog.next(), 2);
-        assert_eq!(exog.next(), 3);
-        assert_eq!(exog.next(), 3);
-        assert_eq!(exog.next(), 3);
-        assert_eq!(exog.next(), 3);
-        assert_eq!(exog.next(), 3);
+        assert_eq!(exog.next_value(), 1);
+        assert_eq!(exog.next_value(), 2);
+        assert_eq!(exog.next_value(), 3);
+        assert_eq!(exog.next_value(), 3);
+        assert_eq!(exog.next_value(), 3);
+        assert_eq!(exog.next_value(), 3);
+        assert_eq!(exog.next_value(), 3);
         assert!(exog.is_exhausted());
     }
 }

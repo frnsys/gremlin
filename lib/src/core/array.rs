@@ -38,9 +38,7 @@ use super::numeric::Numeric;
     serialize = "N: Serialize",
     deserialize = "N: DeserializeOwned"
 ))]
-pub struct Array<N, const U: usize>(
-    #[serde_as(as = "[_; U]")] [N; U],
-);
+pub struct Array<N, const U: usize>(#[serde_as(as = "[_; U]")] [N; U]);
 impl<N, const U: usize> Array<N, U> {
     pub fn new(vals: [N; U]) -> Self {
         Self(vals)
@@ -58,6 +56,10 @@ impl<N, const U: usize> Array<N, U> {
 
     pub fn len(&self) -> usize {
         self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     pub fn into<M>(self) -> Array<M, U>
@@ -185,8 +187,9 @@ impl<N: Numeric, const U: usize> Add for Array<N, U> {
     /// Element-wise addition.
     fn add(self, rhs: Self) -> Self::Output {
         let mut result = [N::default(); U];
-        for i in 0..U {
-            result[i] = self.0[i] + rhs.0[i];
+        let sums = self.0.iter().zip(&rhs.0).map(|(a, b)| *a + *b);
+        for (a, b) in result.iter_mut().zip(sums) {
+            *a = b;
         }
         Self(result)
     }
@@ -194,8 +197,8 @@ impl<N: Numeric, const U: usize> Add for Array<N, U> {
 impl<N: Numeric, const U: usize> AddAssign for Array<N, U> {
     /// Element-wise addition.
     fn add_assign(&mut self, rhs: Self) {
-        for i in 0..U {
-            self.0[i] += rhs.0[i];
+        for (x, o) in self.0.iter_mut().zip(&rhs.0) {
+            *x += *o;
         }
     }
 }
@@ -205,8 +208,9 @@ impl<N: Numeric, const U: usize> Sub for Array<N, U> {
     /// Element-wise subtraction.
     fn sub(self, rhs: Self) -> Self::Output {
         let mut result = [N::default(); U];
-        for i in 0..U {
-            result[i] = self.0[i] - rhs.0[i];
+        let diffs = self.0.iter().zip(&rhs.0).map(|(a, b)| *a + *b);
+        for (a, b) in result.iter_mut().zip(diffs) {
+            *a = b;
         }
         Self(result)
     }
@@ -224,18 +228,15 @@ impl<N: Numeric, const U: usize> Add<N> for Array<N, U> {
 
     /// Element-wise addition.
     fn add(self, rhs: N) -> Self::Output {
-        let mut result = [N::default(); U];
-        for i in 0..U {
-            result[i] = self.0[i] + rhs;
-        }
+        let result = self.0.map(|v| v + rhs);
         Self(result)
     }
 }
 impl<N: Numeric, const U: usize> AddAssign<N> for Array<N, U> {
     /// Element-wise addition.
     fn add_assign(&mut self, rhs: N) {
-        for i in 0..U {
-            self.0[i] += rhs;
+        for val in self.0.iter_mut() {
+            *val += rhs;
         }
     }
 }
@@ -244,18 +245,15 @@ impl<N: Numeric, const U: usize> Sub<N> for Array<N, U> {
 
     /// Element-wise subtraction.
     fn sub(self, rhs: N) -> Self::Output {
-        let mut result = [N::default(); U];
-        for i in 0..U {
-            result[i] = self.0[i] - rhs;
-        }
+        let result = self.0.map(|v| v - rhs);
         Self(result)
     }
 }
 impl<N: Numeric, const U: usize> SubAssign<N> for Array<N, U> {
     /// Element-wise subtraction.
     fn sub_assign(&mut self, rhs: N) {
-        for i in 0..U {
-            self.0[i] -= rhs;
+        for val in self.0.iter_mut() {
+            *val -= rhs;
         }
     }
 }
@@ -265,20 +263,15 @@ impl<N: Numeric, const U: usize> Mul<f32> for Array<N, U> {
 
     /// Element-wise multiplication.
     fn mul(self, rhs: f32) -> Self::Output {
-        let mut result = [N::default(); U];
-        for i in 0..U {
-            result[i] = self.0[i] * rhs;
-        }
+        let result = self.0.map(|v| v * rhs);
         Self(result)
     }
 }
-impl<N: Numeric, const U: usize> MulAssign<f32>
-    for Array<N, U>
-{
+impl<N: Numeric, const U: usize> MulAssign<f32> for Array<N, U> {
     /// Element-wise multiplication.
     fn mul_assign(&mut self, rhs: f32) {
-        for i in 0..U {
-            self.0[i] *= rhs;
+        for val in self.0.iter_mut() {
+            *val *= rhs;
         }
     }
 }
@@ -287,20 +280,15 @@ impl<N: Numeric, const U: usize> Div<f32> for Array<N, U> {
 
     /// Element-wise division.
     fn div(self, rhs: f32) -> Self::Output {
-        let mut result = [N::default(); U];
-        for i in 0..U {
-            result[i] = self.0[i] / rhs;
-        }
+        let result = self.0.map(|v| v / rhs);
         Self(result)
     }
 }
-impl<N: Numeric, const U: usize> DivAssign<f32>
-    for Array<N, U>
-{
+impl<N: Numeric, const U: usize> DivAssign<f32> for Array<N, U> {
     /// Element-wise division.
     fn div_assign(&mut self, rhs: f32) {
-        for i in 0..U {
-            self.0[i] /= rhs;
+        for val in self.0.iter_mut() {
+            *val /= rhs;
         }
     }
 }
@@ -323,8 +311,7 @@ impl<N, const U: usize> FromIterator<N> for Array<N, U> {
 }
 impl<N, const U: usize> From<Vec<N>> for Array<N, U> {
     fn from(value: Vec<N>) -> Self {
-        let Ok(arr): Result<[N; U], _> = value.try_into()
-        else {
+        let Ok(arr): Result<[N; U], _> = value.try_into() else {
             panic!("Vec should be of length {U}")
         };
         Self::new(arr)
@@ -355,10 +342,7 @@ impl<N: Numeric, const U: usize> FromStr for Array<N, U> {
         // Can't seem to do `Vec::try_into` as
         // it's not implemented for arrays of generic size?
         if vals.len() != U {
-            panic!(
-                "Expected {U} values but got {}",
-                vals.len()
-            );
+            panic!("Expected {U} values but got {}", vals.len());
         }
         let mut arr = [N::default(); U];
         for i in 0..U {
@@ -367,14 +351,9 @@ impl<N: Numeric, const U: usize> FromStr for Array<N, U> {
         Ok(Self(arr))
     }
 }
-impl<N: Numeric, const U: usize> std::fmt::Display
-    for Array<N, U>
-{
+impl<N: Numeric, const U: usize> std::fmt::Display for Array<N, U> {
     /// Serialize as a comma-delimited string.
-    fn fmt(
-        &self,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let as_str = self
             .iter()
             .map(|val| val.to_string())
