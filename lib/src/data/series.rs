@@ -37,19 +37,45 @@ where
     T: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
+    let reader = csv::Reader::from_path(path)?;
+    read_series(value_col, time_cols, reader)
+}
+
+pub fn read_series_csv_str<T, S, N: Numeric, I: Interval>(
+    value_col: &str,
+    time_cols: T,
+    s: &str,
+) -> anyhow::Result<TimeSeries<N, I>>
+where
+    T: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let reader = csv::Reader::from_reader(s.as_bytes());
+    read_series(value_col, time_cols, reader)
+}
+
+pub fn read_series<T, S, N: Numeric, I: Interval, R: std::io::Read>(
+    value_col: &str,
+    time_cols: T,
+    reader: csv::Reader<R>,
+) -> anyhow::Result<TimeSeries<N, I>>
+where
+    T: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
     let time_cols = time_cols
         .into_iter()
         .map(|s| s.as_ref().to_string())
         .collect();
 
-    let reader = TimeSeriesReader {
+    let r = TimeSeriesReader {
         missing_strategy: MissingStrategy::Skip,
         merging_strategy: MergingStrategy::Ignore,
         time_cols,
         value_col: value_col.into(),
         marker: PhantomData::<I>,
     };
-    let items: Vec<(I::Key, N)> = reader.read(path)?;
+    let items: Vec<(I::Key, N)> = r.read_impl(reader)?;
     Ok(TimeSeries::from(items.into_iter()))
 }
 
@@ -98,13 +124,29 @@ impl<N: Numeric, I: Interval> TimeSeriesReader<N, I> {
         self
     }
 
+    /// Read the time series from a string.
+    pub fn from_str(
+        &self,
+        s: &str,
+    ) -> anyhow::Result<Vec<(I::Key, N)>> {
+        let reader = csv::Reader::from_reader(s.as_bytes());
+        self.read_impl(reader)
+    }
+
     /// Read the time series from a file.
     pub fn read(
         &self,
         path: &Path,
     ) -> anyhow::Result<Vec<(I::Key, N)>> {
-        let mut rdr = csv::Reader::from_path(path)?;
-        let headers = rdr.headers().expect("Should have headers");
+        let reader = csv::Reader::from_path(path)?;
+        self.read_impl(reader)
+    }
+
+    fn read_impl<R: std::io::Read>(
+        &self,
+        mut reader: csv::Reader<R>,
+    ) -> anyhow::Result<Vec<(I::Key, N)>> {
+        let headers = reader.headers().expect("Should have headers");
         let time_idxs: GenericArray<usize, I::KeySize> = headers
             .iter()
             .enumerate()
@@ -121,7 +163,7 @@ impl<N: Numeric, I: Interval> TimeSeriesReader<N, I> {
             .expect("Should have value column");
 
         let mut results = vec![];
-        for result in rdr.records() {
+        for result in reader.records() {
             let record = result?;
             let raw_keys: GenericArray<String, I::KeySize> = time_idxs
                 .iter()

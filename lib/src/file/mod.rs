@@ -33,6 +33,19 @@ pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(
     })
 }
 
+pub fn read_csv_str<T: DeserializeOwned>(
+    s: &str,
+) -> impl Iterator<Item = T> + '_ {
+    let mut reader = csv::Reader::from_reader(s.as_bytes());
+    let headers = reader.headers().unwrap().clone();
+    reader.into_records().map(move |rec| {
+        let rec = rec.unwrap();
+        rec.deserialize(Some(&headers))
+            .with_context(|| format!("{rec:?}"))
+            .unwrap()
+    })
+}
+
 /// Read raw rows from a CSV, specifying the column names.
 /// The column order doesn't need to match what's in the CSV;
 /// they will automatically be rearranged to match.
@@ -92,17 +105,35 @@ pub fn read_flat_csv<
     path: P,
 ) -> Result<Vec<T>, CsvError> {
     tracing::debug!("Deserializing CSV: {:#?}", path);
+    let path = path.as_ref();
+    let reader = csv::Reader::from_path(path).map_err(|_err| {
+        CsvError::FailedToOpenFile(path.to_path_buf())
+    })?;
+
+    let source = path.display().to_string();
+    _read_flat_csv(source, reader)
+}
+
+pub fn read_flat_csv_str<T: Serialize + DeserializeOwned + Default>(
+    s: &str,
+) -> Result<Vec<T>, CsvError> {
+    let reader = csv::Reader::from_reader(s.as_bytes());
+    _read_flat_csv("(raw string)".into(), reader)
+}
+
+fn _read_flat_csv<
+    R: std::io::Read,
+    T: Serialize + DeserializeOwned + Default,
+>(
+    source: String,
+    mut reader: csv::Reader<R>,
+) -> Result<Vec<T>, CsvError> {
     let ref_val = T::default();
     let json_val = serde_json::to_value(&ref_val)?;
     let json_obj = json_val
         .as_object()
         .expect("We gave an object so we get one back");
     let ref_cols: Vec<&String> = json_obj.keys().collect();
-    let path = path.as_ref();
-
-    let mut reader = csv::Reader::from_path(path).map_err(|_err| {
-        CsvError::FailedToOpenFile(path.to_path_buf())
-    })?;
 
     let cols: Vec<String> = reader
         .headers()
@@ -118,10 +149,7 @@ pub fn read_flat_csv<
         .map(|col| col.to_string())
         .collect();
     if !missing.is_empty() {
-        return Err(CsvError::ColumnsMismatch(
-            path.display().to_string(),
-            missing,
-        ));
+        return Err(CsvError::ColumnsMismatch(source, missing));
     }
 
     let idxs: Vec<usize> = ref_cols

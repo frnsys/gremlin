@@ -105,6 +105,14 @@ impl<T, I: Interval> Deref for TimeSeries<T, I> {
         &self.data
     }
 }
+impl<T, I: Interval> Default for TimeSeries<T, I> {
+    fn default() -> Self {
+        TimeSeries {
+            data: vec![],
+            marker: PhantomData,
+        }
+    }
+}
 
 impl<T, I: Interval, IT> From<IT> for TimeSeries<T, I>
 where
