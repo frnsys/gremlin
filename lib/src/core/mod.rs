@@ -6,6 +6,8 @@ mod series;
 mod units;
 mod var;
 
+use std::iter::Sum;
+
 use ahash::HashMap;
 pub use anyhow::Result as AnyResult;
 pub use array::Array;
@@ -79,6 +81,14 @@ impl<N: Numeric> ByYearHour<N> {
             let day_hour = year_hour % 24;
             (year_hour, day_hour, val)
         })
+    }
+}
+impl<N: Numeric + for<'a> Sum<&'a N>> ByYearHour<N> {
+    /// Merge day-hours into days by summing the values
+    /// for each hour, resulting in 365 data points
+    /// (one for each day of the year).
+    pub fn sum_days(&self) -> Array<N, 365> {
+        self.chunks(24).map(|day| day.iter().sum()).collect()
     }
 }
 
