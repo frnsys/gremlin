@@ -35,10 +35,7 @@ impl<I: Iterator> Rows for I {}
 #[ext(name=HashMapExt)]
 pub impl<K: Hash + Eq, V> HashMap<K, V> {
     /// Filter out groups that fail to satisfy the provided predicate.
-    fn filter(
-        self,
-        predicate: impl Fn(&(K, V)) -> bool,
-    ) -> HashMap<K, V> {
+    fn filter(self, predicate: impl Fn(&(K, V)) -> bool) -> HashMap<K, V> {
         self.into_iter().filter(predicate).collect()
     }
 
@@ -62,11 +59,7 @@ pub impl<K: Hash + Eq, V> HashMap<K, V> {
     ///
     /// Note that if key `K` is present in group B but not
     /// in group A, we just move the value from B into A.
-    fn merge(
-        mut self,
-        other: HashMap<K, V>,
-        merger: impl Fn(&K, &mut V, V),
-    ) -> HashMap<K, V> {
+    fn merge(mut self, other: HashMap<K, V>, merger: impl Fn(&K, &mut V, V)) -> HashMap<K, V> {
         for (k, other_val) in other.into_iter() {
             // instead of default, check if present in
             // either this or other, and use other if needed
@@ -84,10 +77,7 @@ pub impl<K: Hash + Eq, V> HashMap<K, V> {
 #[ext(name=HashMapVecExt)]
 pub impl<K: Hash + Eq, V> HashMap<K, Vec<V>> {
     /// Apply a map function over each group's members.
-    fn map_members<U: Default>(
-        self,
-        f: impl Fn(&K, V) -> U + Send + Sync,
-    ) -> HashMap<K, Vec<U>> {
+    fn map_members<U: Default>(self, f: impl Fn(&K, V) -> U + Send + Sync) -> HashMap<K, Vec<U>> {
         self.map(|k, vs| vs.into_iter().map(|v| f(k, v)).collect())
     }
 }
@@ -148,6 +138,28 @@ pub trait IterExt<T: Float>: Iterator<Item = T> {
         Self: Sized,
     {
         self.fold(-f32::INFINITY, |a, b| a.max(b.to_f32()))
+    }
+
+    /// Normalize the values.
+    fn normalize(self) -> impl Iterator<Item = f32>
+    where
+        Self: Sized,
+    {
+        let mut min = f32::INFINITY;
+        let mut max = f32::NEG_INFINITY;
+        let vals: Vec<f32> = self.into_iter().map(|val| val.to_f32()).collect();
+        for val in &vals {
+            min = f32::min(*val, min);
+            max = f32::max(*val, max);
+        }
+
+        vals.into_iter().map(move |value| {
+            if max - min == 0.0 {
+                0.0
+            } else {
+                (value - min) / (max - min)
+            }
+        })
     }
 }
 impl<T, F: Float> IterExt<F> for T where T: Iterator<Item = F> {}

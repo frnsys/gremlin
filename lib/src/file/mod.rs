@@ -16,9 +16,7 @@ use serde_json::{json, Value};
 pub use path::*;
 use thiserror::Error;
 
-pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(
-    path: P,
-) -> impl Iterator<Item = T> {
+pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> impl Iterator<Item = T> {
     let path = path.as_ref();
     let mut reader = csv::Reader::from_path(path)
         .with_context(|| path.display().to_string())
@@ -33,9 +31,11 @@ pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(
     })
 }
 
-pub fn read_csv_str<T: DeserializeOwned>(
-    s: &str,
-) -> impl Iterator<Item = T> + '_ {
+pub fn read_csvs<T: DeserializeOwned, P: AsPaths>(paths: P) -> impl Iterator<Item = T> {
+    paths.as_paths().into_iter().flat_map(|path| read_csv(path))
+}
+
+pub fn read_csv_str<T: DeserializeOwned>(s: &str) -> impl Iterator<Item = T> + '_ {
     let mut reader = csv::Reader::from_reader(s.as_bytes());
     let headers = reader.headers().unwrap().clone();
     reader.into_records().map(move |rec| {
@@ -59,9 +59,7 @@ pub fn read_rows<const N: usize>(
         headers
             .iter()
             .position(|field| field == col)
-            .unwrap_or_else(|| {
-                panic!(r#"Couldn't find column "{}""#, col)
-            })
+            .unwrap_or_else(|| panic!(r#"Couldn't find column "{}""#, col))
     });
     let mut results = vec![];
     for result in rdr.records() {
@@ -106,9 +104,8 @@ pub fn read_flat_csv<
 ) -> Result<Vec<T>, CsvError> {
     tracing::debug!("Deserializing CSV: {:#?}", path);
     let path = path.as_ref();
-    let reader = csv::Reader::from_path(path).map_err(|_err| {
-        CsvError::FailedToOpenFile(path.to_path_buf())
-    })?;
+    let reader = csv::Reader::from_path(path)
+        .map_err(|_err| CsvError::FailedToOpenFile(path.to_path_buf()))?;
 
     let source = path.display().to_string();
     _read_flat_csv(source, reader)
@@ -121,10 +118,7 @@ pub fn read_flat_csv_str<T: Serialize + DeserializeOwned + Default>(
     _read_flat_csv("(raw string)".into(), reader)
 }
 
-fn _read_flat_csv<
-    R: std::io::Read,
-    T: Serialize + DeserializeOwned + Default,
->(
+fn _read_flat_csv<R: std::io::Read, T: Serialize + DeserializeOwned + Default>(
     source: String,
     mut reader: csv::Reader<R>,
 ) -> Result<Vec<T>, CsvError> {
@@ -166,37 +160,22 @@ fn _read_flat_csv<
             let col = &cols[*idx];
             match typ {
                 Value::Bool(_) => {
-                    map.insert(
-                        col.to_string(),
-                        json!(val.parse::<bool>()?),
-                    );
+                    map.insert(col.to_string(), json!(val.parse::<bool>()?));
                 }
                 Value::Number(num) => {
                     if num.is_f64() {
-                        map.insert(
-                            col.to_string(),
-                            json!(val.parse::<f32>()?),
-                        );
+                        map.insert(col.to_string(), json!(val.parse::<f32>()?));
                     } else if num.is_i64() {
-                        map.insert(
-                            col.to_string(),
-                            json!(val.parse::<i32>()?),
-                        );
+                        map.insert(col.to_string(), json!(val.parse::<i32>()?));
                     } else if num.is_u64() {
-                        map.insert(
-                            col.to_string(),
-                            json!(val.parse::<u32>()?),
-                        );
+                        map.insert(col.to_string(), json!(val.parse::<u32>()?));
                     }
                 }
                 Value::String(_) => {
                     map.insert(col.to_string(), json!(val));
                 }
                 _ => {
-                    return Err(CsvError::UnhandledType(
-                        col.clone(),
-                        typ.clone(),
-                    ));
+                    return Err(CsvError::UnhandledType(col.clone(), typ.clone()));
                 }
             }
         }
@@ -208,18 +187,13 @@ fn _read_flat_csv<
 
 /// A hacky way to serialize a type to a flattened CSV representation.
 /// See [`read_flat_csv`] for more details.
-pub fn write_flat_csv<
-    T: Serialize + Default,
-    P: AsRef<Path> + std::fmt::Debug,
->(
+pub fn write_flat_csv<T: Serialize + Default, P: AsRef<Path> + std::fmt::Debug>(
     path: P,
     items: &[T],
 ) -> Result<(), CsvError> {
     tracing::debug!("Serializing CSV: {:#?}", path);
-    let mut w =
-        csv::Writer::from_path(path.as_ref()).map_err(|_err| {
-            CsvError::FailedToOpenFile(path.as_ref().to_path_buf())
-        })?;
+    let mut w = csv::Writer::from_path(path.as_ref())
+        .map_err(|_err| CsvError::FailedToOpenFile(path.as_ref().to_path_buf()))?;
 
     let ref_val = T::default();
     let json_val = serde_json::to_value(&ref_val)?;
@@ -270,21 +244,16 @@ pub fn write_yaml<D: Serialize>(d: &D, path: &Path) {
         .create(true)
         .truncate(true)
         .open(path)
-        .unwrap_or_else(|_| {
-            panic!("Couldn't open file for writing: {path:#?}")
-        });
-    serde_yaml::to_writer(f, d).unwrap_or_else(|_| {
-        panic!("Couldn't write yaml to file: {path:#?}")
-    });
+        .unwrap_or_else(|_| panic!("Couldn't open file for writing: {path:#?}"));
+    serde_yaml::to_writer(f, d)
+        .unwrap_or_else(|_| panic!("Couldn't write yaml to file: {path:#?}"));
 }
 
 pub fn read_yaml<T: DeserializeOwned>(path: &Path) -> T {
-    let file = File::open(path).unwrap_or_else(|_| {
-        panic!("Couldn't open file for reading: {path:#?}")
-    });
-    serde_yaml::from_reader(file).unwrap_or_else(|_| {
-        panic!("Couldn't read yaml from file: {path:#?}")
-    })
+    let file =
+        File::open(path).unwrap_or_else(|_| panic!("Couldn't open file for reading: {path:#?}"));
+    serde_yaml::from_reader(file)
+        .unwrap_or_else(|_| panic!("Couldn't read yaml from file: {path:#?}"))
 }
 
 #[derive(Debug, Error)]
@@ -292,9 +261,7 @@ pub enum CsvError {
     #[error("Failed to open the CSV file: {0}.")]
     FailedToOpenFile(PathBuf),
 
-    #[error(
-        "These expected columns were missing from the CSV {0:?}: {1:?}."
-    )]
+    #[error("These expected columns were missing from the CSV {0:?}: {1:?}.")]
     ColumnsMismatch(String, Vec<String>),
 
     #[error("Encountered a column value/struct field of an unknown type: {0} -> {1:?}")]
