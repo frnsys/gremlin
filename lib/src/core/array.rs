@@ -1,17 +1,6 @@
 use std::{
     iter::Sum,
-    ops::{
-        Add,
-        AddAssign,
-        Div,
-        DivAssign,
-        Index,
-        IndexMut,
-        Mul,
-        MulAssign,
-        Sub,
-        SubAssign,
-    },
+    ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign},
     path::Path,
     str::FromStr,
 };
@@ -30,27 +19,20 @@ use super::numeric::Numeric;
 /// but rather through one of its pre-defined aliases
 /// that represent fixed time intervals, e.g. [`ByDayHour`](super::ByDayHour).
 #[serde_as]
-#[derive(
-    Debug, Clone, Copy, PartialEq, Deref, Serialize, Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Deref, Serialize, Deserialize)]
 #[serde(transparent)]
-#[serde(bound(
-    serialize = "N: Serialize",
-    deserialize = "N: DeserializeOwned"
-))]
-pub struct Array<N, const U: usize>(#[serde_as(as = "[_; U]")] [N; U]);
+#[serde(bound(serialize = "N: Serialize", deserialize = "N: DeserializeOwned"))]
+pub struct Array<N, const U: usize>(#[serde_as(as = "Box<[_; U]>")] Box<[N; U]>);
 impl<N, const U: usize> Array<N, U> {
     pub fn new(vals: [N; U]) -> Self {
-        Self(vals)
+        Self(Box::new(vals))
     }
 
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &N> {
         self.0.iter()
     }
 
-    pub fn iter_mut(
-        &mut self,
-    ) -> impl ExactSizeIterator<Item = &mut N> {
+    pub fn iter_mut(&mut self) -> impl ExactSizeIterator<Item = &mut N> {
         self.0.iter_mut()
     }
 
@@ -67,15 +49,11 @@ impl<N, const U: usize> Array<N, U> {
         M: From<N>,
     {
         let arr = self.0.map(|v| M::from(v));
-        Array(arr)
+        Array::new(arr)
     }
 
     /// Write this array to a CSV.
-    pub fn to_csv<P: AsRef<Path>>(
-        &self,
-        column_name: &str,
-        path: P,
-    ) -> csv::Result<()>
+    pub fn to_csv<P: AsRef<Path>>(&self, column_name: &str, path: P) -> csv::Result<()>
     where
         N: ToString,
     {
@@ -146,17 +124,14 @@ impl<N: Numeric, const U: usize> Array<N, U> {
 
     /// Distribute the provided value according to
     /// the provided distribution (which should sum to 1.0).
-    pub fn distribute_value(
-        val: N,
-        dist: &Array<f32, U>,
-    ) -> Array<N, U> {
+    pub fn distribute_value(val: N, dist: &Array<f32, U>) -> Array<N, U> {
         Self::new(dist.map(|p| val * p))
     }
 }
 impl<N: Default, const U: usize> Default for Array<N, U> {
     fn default() -> Self {
         let arr: [N; U] = std::array::from_fn(|_| N::default());
-        Self(arr)
+        Self::new(arr)
     }
 }
 
@@ -164,7 +139,7 @@ impl<N: Clone, const U: usize> Array<N, U> {
     /// Create a new array from a single value.
     pub fn splat(val: N) -> Self {
         let arr: [N; U] = std::array::from_fn(|_| val.clone());
-        Self(arr)
+        Self::new(arr)
     }
 }
 
@@ -187,17 +162,25 @@ impl<N: Numeric, const U: usize> Add for Array<N, U> {
     /// Element-wise addition.
     fn add(self, rhs: Self) -> Self::Output {
         let mut result = [N::default(); U];
-        let sums = self.0.iter().zip(&rhs.0).map(|(a, b)| *a + *b);
+        let sums = self.0.iter().zip(rhs.0.iter()).map(|(a, b)| *a + *b);
         for (a, b) in result.iter_mut().zip(sums) {
             *a = b;
         }
-        Self(result)
+        Self::new(result)
     }
 }
 impl<N: Numeric, const U: usize> AddAssign for Array<N, U> {
     /// Element-wise addition.
     fn add_assign(&mut self, rhs: Self) {
-        for (x, o) in self.0.iter_mut().zip(&rhs.0) {
+        for (x, o) in self.0.iter_mut().zip(rhs.0.iter()) {
+            *x += *o;
+        }
+    }
+}
+impl<N: Numeric, const U: usize> AddAssign<&Array<N, U>> for Array<N, U> {
+    /// Element-wise addition.
+    fn add_assign(&mut self, rhs: &Array<N, U>) {
+        for (x, o) in self.0.iter_mut().zip(rhs.0.iter()) {
             *x += *o;
         }
     }
@@ -208,11 +191,11 @@ impl<N: Numeric, const U: usize> Sub for Array<N, U> {
     /// Element-wise subtraction.
     fn sub(self, rhs: Self) -> Self::Output {
         let mut result = [N::default(); U];
-        let diffs = self.0.iter().zip(&rhs.0).map(|(a, b)| *a + *b);
+        let diffs = self.0.iter().zip(rhs.0.iter()).map(|(a, b)| *a + *b);
         for (a, b) in result.iter_mut().zip(diffs) {
             *a = b;
         }
-        Self(result)
+        Self::new(result)
     }
 }
 impl<N: Numeric, const U: usize> SubAssign for Array<N, U> {
@@ -229,7 +212,7 @@ impl<N: Numeric, const U: usize> Add<N> for Array<N, U> {
     /// Element-wise addition.
     fn add(self, rhs: N) -> Self::Output {
         let result = self.0.map(|v| v + rhs);
-        Self(result)
+        Self::new(result)
     }
 }
 impl<N: Numeric, const U: usize> AddAssign<N> for Array<N, U> {
@@ -246,7 +229,7 @@ impl<N: Numeric, const U: usize> Sub<N> for Array<N, U> {
     /// Element-wise subtraction.
     fn sub(self, rhs: N) -> Self::Output {
         let result = self.0.map(|v| v - rhs);
-        Self(result)
+        Self::new(result)
     }
 }
 impl<N: Numeric, const U: usize> SubAssign<N> for Array<N, U> {
@@ -264,7 +247,7 @@ impl<N: Numeric, const U: usize> Mul<f32> for Array<N, U> {
     /// Element-wise multiplication.
     fn mul(self, rhs: f32) -> Self::Output {
         let result = self.0.map(|v| v * rhs);
-        Self(result)
+        Self::new(result)
     }
 }
 impl<N: Numeric, const U: usize> MulAssign<f32> for Array<N, U> {
@@ -281,7 +264,7 @@ impl<N: Numeric, const U: usize> Div<f32> for Array<N, U> {
     /// Element-wise division.
     fn div(self, rhs: f32) -> Self::Output {
         let result = self.0.map(|v| v / rhs);
-        Self(result)
+        Self::new(result)
     }
 }
 impl<N: Numeric, const U: usize> DivAssign<f32> for Array<N, U> {
@@ -348,7 +331,7 @@ impl<N: Numeric, const U: usize> FromStr for Array<N, U> {
         for i in 0..U {
             arr[i] = vals[i].into();
         }
-        Ok(Self(arr))
+        Ok(Self::new(arr))
     }
 }
 impl<N: Numeric, const U: usize> std::fmt::Display for Array<N, U> {
