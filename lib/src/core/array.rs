@@ -68,6 +68,12 @@ impl<N, const U: usize> Array<N, U> {
     }
 }
 
+impl<N: Numeric, const U: usize> AsRef<Self> for Array<N, U> {
+    fn as_ref(&self) -> &Self {
+        self
+    }
+}
+
 impl<N: Numeric, const U: usize> Array<N, U> {
     /// Get the minimum element.
     pub fn min(&self) -> N {
@@ -156,124 +162,146 @@ impl<N, const U: usize> IndexMut<usize> for Array<N, U> {
     }
 }
 
-impl<N: Numeric, const U: usize> Add for Array<N, U> {
-    type Output = Array<N, U>;
-
-    /// Element-wise addition.
-    fn add(self, rhs: Self) -> Self::Output {
-        let mut result = [N::default(); U];
-        let sums = self.0.iter().zip(rhs.0.iter()).map(|(a, b)| *a + *b);
-        for (a, b) in result.iter_mut().zip(sums) {
-            *a = b;
-        }
-        Self::new(result)
-    }
-}
-impl<N: Numeric, const U: usize> AddAssign for Array<N, U> {
-    /// Element-wise addition.
-    fn add_assign(&mut self, rhs: Self) {
-        for (x, o) in self.0.iter_mut().zip(rhs.0.iter()) {
+impl<N: Numeric, const U: usize> Array<N, U> {
+    pub fn add_assign<A: AsRef<Array<N, U>>>(&mut self, rhs: A) {
+        for (x, o) in self.0.iter_mut().zip(rhs.as_ref().0.iter()) {
             *x += *o;
         }
     }
-}
-impl<N: Numeric, const U: usize> AddAssign<&Array<N, U>> for Array<N, U> {
-    /// Element-wise addition.
-    fn add_assign(&mut self, rhs: &Array<N, U>) {
-        for (x, o) in self.0.iter_mut().zip(rhs.0.iter()) {
-            *x += *o;
-        }
-    }
-}
-impl<N: Numeric, const U: usize> Sub for Array<N, U> {
-    type Output = Array<N, U>;
 
-    /// Element-wise subtraction.
-    fn sub(self, rhs: Self) -> Self::Output {
-        let mut result = [N::default(); U];
-        let diffs = self.0.iter().zip(rhs.0.iter()).map(|(a, b)| *a + *b);
-        for (a, b) in result.iter_mut().zip(diffs) {
-            *a = b;
-        }
-        Self::new(result)
+    pub fn add<A: AsRef<Array<N, U>>>(mut self, rhs: A) -> Self {
+        self += rhs.as_ref();
+        self
     }
-}
-impl<N: Numeric, const U: usize> SubAssign for Array<N, U> {
-    /// Element-wise subtraction.
-    fn sub_assign(&mut self, rhs: Self) {
-        for i in 0..U {
-            self.0[i] -= rhs.0[i];
-        }
-    }
-}
-impl<N: Numeric, const U: usize> Add<N> for Array<N, U> {
-    type Output = Array<N, U>;
 
-    /// Element-wise addition.
-    fn add(self, rhs: N) -> Self::Output {
-        let result = self.0.map(|v| v + rhs);
-        Self::new(result)
-    }
-}
-impl<N: Numeric, const U: usize> AddAssign<N> for Array<N, U> {
-    /// Element-wise addition.
-    fn add_assign(&mut self, rhs: N) {
-        for val in self.0.iter_mut() {
-            *val += rhs;
+    pub fn sub_assign<A: AsRef<Array<N, U>>>(&mut self, rhs: A) {
+        for (x, o) in self.0.iter_mut().zip(rhs.as_ref().0.iter()) {
+            *x -= *o;
         }
     }
-}
-impl<N: Numeric, const U: usize> Sub<N> for Array<N, U> {
-    type Output = Array<N, U>;
 
-    /// Element-wise subtraction.
-    fn sub(self, rhs: N) -> Self::Output {
-        let result = self.0.map(|v| v - rhs);
-        Self::new(result)
-    }
-}
-impl<N: Numeric, const U: usize> SubAssign<N> for Array<N, U> {
-    /// Element-wise subtraction.
-    fn sub_assign(&mut self, rhs: N) {
-        for val in self.0.iter_mut() {
-            *val -= rhs;
-        }
+    pub fn sub<A: AsRef<Array<N, U>>>(mut self, rhs: A) -> Self {
+        self -= rhs.as_ref();
+        self
     }
 }
 
-impl<N: Numeric, const U: usize> Mul<f32> for Array<N, U> {
-    type Output = Array<N, U>;
+macro_rules! impl_arithmetic {
+    ($($target:ty => $rhs:ty),*) => {
+        $(
+            impl<N: Numeric, const U: usize> Add<$rhs> for $target {
+                type Output = Array<N, U>;
+                fn add(self, rhs: $rhs) -> Self::Output {
+                    Array::add(self, rhs)
+                }
+            }
 
-    /// Element-wise multiplication.
-    fn mul(self, rhs: f32) -> Self::Output {
-        let result = self.0.map(|v| v * rhs);
-        Self::new(result)
-    }
-}
-impl<N: Numeric, const U: usize> MulAssign<f32> for Array<N, U> {
-    /// Element-wise multiplication.
-    fn mul_assign(&mut self, rhs: f32) {
-        for val in self.0.iter_mut() {
-            *val *= rhs;
-        }
-    }
-}
-impl<N: Numeric, const U: usize> Div<f32> for Array<N, U> {
-    type Output = Array<N, U>;
+            impl<N: Numeric, const U: usize> AddAssign<$rhs> for $target {
+                fn add_assign(&mut self, rhs: $rhs) {
+                    Array::add_assign(self, rhs)
+                }
+            }
 
-    /// Element-wise division.
-    fn div(self, rhs: f32) -> Self::Output {
-        let result = self.0.map(|v| v / rhs);
-        Self::new(result)
+            impl<N: Numeric, const U: usize> Sub<$rhs> for $target {
+                type Output = Array<N, U>;
+                fn sub(self, rhs: $rhs) -> Self::Output {
+                    Array::sub(self, rhs)
+                }
+            }
+
+            impl<N: Numeric, const U: usize> SubAssign<$rhs> for $target {
+                fn sub_assign(&mut self, rhs: $rhs) {
+                    Array::sub_assign(self, rhs)
+                }
+            }
+        )*
     }
 }
-impl<N: Numeric, const U: usize> DivAssign<f32> for Array<N, U> {
-    /// Element-wise division.
-    fn div_assign(&mut self, rhs: f32) {
-        for val in self.0.iter_mut() {
-            *val /= rhs;
-        }
+impl_arithmetic! {
+    Array<N, U> => Array<N, U>,
+    Array<N, U> => &Array<N, U>
+}
+
+macro_rules! impl_unit_arithmetic {
+    ($($target:ty),*) => {
+        $(
+            impl<N: Numeric, const U: usize> Add<N> for $target {
+                type Output = Array<N, U>;
+                fn add(self, rhs: N) -> Self::Output {
+                    let result = self.0.map(|v| v + rhs);
+                    Self::Output::new(result)
+                }
+            }
+
+            impl<N: Numeric, const U: usize> Sub<N> for $target {
+                type Output = Array<N, U>;
+                fn sub(self, rhs: N) -> Self::Output {
+                    let result = self.0.map(|v| v - rhs);
+                    Self::Output::new(result)
+                }
+            }
+
+            impl<N: Numeric, const U: usize> Mul<f32> for $target {
+                type Output = Array<N, U>;
+                fn mul(self, rhs: f32) -> Self::Output {
+                    let result = self.0.map(|v| v * rhs);
+                    Self::Output::new(result)
+                }
+            }
+            impl<N: Numeric, const U: usize> Div<f32> for $target {
+                type Output = Array<N, U>;
+                fn div(self, rhs: f32) -> Self::Output {
+                    let result = self.0.map(|v| v / rhs);
+                    Self::Output::new(result)
+                }
+            }
+        )*
     }
+}
+impl_unit_arithmetic! {
+    Array<N, U>,
+    &Array<N, U>
+}
+macro_rules! impl_mut_unit_arithmetic {
+    ($($target:ty),*) => {
+        $(
+            impl<N: Numeric, const U: usize> SubAssign<N> for $target {
+                fn sub_assign(&mut self, rhs: N) {
+                    for val in self.0.iter_mut() {
+                        *val -= rhs;
+                    }
+                }
+            }
+
+            impl<N: Numeric, const U: usize> AddAssign<N> for $target {
+                fn add_assign(&mut self, rhs: N) {
+                    for val in self.0.iter_mut() {
+                        *val += rhs;
+                    }
+                }
+            }
+
+            impl<N: Numeric, const U: usize> MulAssign<f32> for $target {
+                fn mul_assign(&mut self, rhs: f32) {
+                    for val in self.0.iter_mut() {
+                        *val *= rhs;
+                    }
+                }
+            }
+
+            impl<N: Numeric, const U: usize> DivAssign<f32> for $target {
+                fn div_assign(&mut self, rhs: f32) {
+                    for val in self.0.iter_mut() {
+                        *val /= rhs;
+                    }
+                }
+            }
+        )*
+    }
+}
+impl_mut_unit_arithmetic! {
+    Array<N, U>,
+    &mut Array<N, U>
 }
 
 impl<N: Numeric, const U: usize> Sum for Array<N, U> {
@@ -361,17 +389,17 @@ mod tests {
     #[test]
     fn test_array_f32_ops() {
         let arr = Array::new([1., 2., 3.]);
-        assert_eq!(arr - 1., Array::new([0., 1., 2.]));
-        assert_eq!(arr + 1., Array::new([2., 3., 4.]));
-        assert_eq!(arr * 2., Array::new([2., 4., 6.]));
-        assert_eq!(arr / 2., Array::new([0.5, 1.0, 1.5]));
+        assert_eq!(&arr - 1., Array::new([0., 1., 2.]));
+        assert_eq!(&arr + 1., Array::new([2., 3., 4.]));
+        assert_eq!(&arr * 2., Array::new([2., 4., 6.]));
+        assert_eq!(&arr / 2., Array::new([0.5, 1.0, 1.5]));
     }
 
     #[test]
     fn test_array_array_ops() {
         let a = Array::new([1., 2., 3.]);
         let b = Array::new([4., 5., 6.]);
-        assert_eq!(a + b, Array::new([5., 7., 9.]));
-        assert_eq!(a - b, Array::new([-3., -3., -3.]));
+        assert_eq!(a.clone() + &b, Array::new([5., 7., 9.]));
+        assert_eq!(a.clone() - &b, Array::new([-3., -3., -3.]));
     }
 }
