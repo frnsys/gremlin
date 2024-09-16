@@ -11,19 +11,8 @@ use syn::{
     parse::{Parse, ParseStream, Result},
     parse_macro_input,
     punctuated::Punctuated,
-    Constraint,
-    Data,
-    DeriveInput,
-    Fields,
-    GenericArgument,
-    Lit,
-    Meta,
-    NestedMeta,
-    Path,
-    PathArguments,
-    Token,
-    Type,
-    TypePath,
+    Constraint, Data, DeriveInput, Fields, GenericArgument, Lit, Meta, NestedMeta, Path,
+    PathArguments, Token, Type, TypePath,
 };
 
 /// The `HasSchema` derive marco,
@@ -92,27 +81,84 @@ pub fn derive_has_schema(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
+fn is_vec_type(ty: &Type) -> bool {
+    if let Type::Path(type_path) = ty {
+        // Check if the type is Vec<_>
+        type_path
+            .path
+            .segments
+            .iter()
+            .any(|segment| segment.ident == "Vec")
+    } else {
+        false
+    }
+}
+
 /// Implements [`FromPartial`](../infra_lib/partial/trait.FromPartial.html) and other auxiliary things.
-#[proc_macro_derive(Partial)]
+///
+#[proc_macro_derive(Partial, attributes(partial))]
 pub fn partial_struct(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
     let name = input.ident; // Original struct name
     let partial_name = format!("Partial{}", name); // Partial<Name> name
     let partial_ident = syn::Ident::new(&partial_name, name.span()); // Create an identifier for the new name
-                                                                     //
+
     let mut field_names = vec![];
     let mut field_idents = vec![];
     let mut field_types = vec![];
+    let mut field_conversions = vec![];
     if let Data::Struct(data) = &input.data {
         if let Fields::Named(fields) = &data.fields {
             for f in &fields.named {
                 let name = f.ident.as_ref().unwrap().to_string();
                 let ident = f.ident.as_ref().unwrap();
-                let ty = &f.ty;
+                let mut new_ty = f.ty.clone();
+
+                // Handle `#[partial]` attribute.
+                let is_partial = f.attrs.iter().any(|attr| attr.path.is_ident("partial"));
+                if is_partial {
+                    if let Type::Path(TypePath { path, .. }) = &new_ty {
+                        if path.segments.len() == 1 && path.segments[0].ident == "Vec" {
+                            // The field is of type Vec<T>
+                            let segment = &path.segments[0].arguments;
+                            if let syn::PathArguments::AngleBracketed(args) = segment {
+                                if let Some(syn::GenericArgument::Type(inner_ty)) =
+                                    args.args.first()
+                                {
+                                    // Modify the type to Vec<PartialT>
+                                    let p_name = format!(
+                                        "Vec<Partial{}>",
+                                        inner_ty.to_token_stream().to_string()
+                                    );
+                                    new_ty = syn::parse_str::<Type>(&p_name).unwrap();
+                                }
+                            } else {
+                                // PartialT
+                                let p_name =
+                                    format!("Partial{}", new_ty.to_token_stream().to_string());
+                                new_ty = syn::parse_str::<Type>(&p_name).unwrap();
+                            }
+                        }
+                    }
+                }
+
+                let conversion = if is_vec_type(&new_ty) {
+                    // If it's a Vec, generate code for map(Into::into)
+                    quote! {
+                        partial.#ident.unwrap().into_iter().map(Into::into).collect()
+                    }
+                } else {
+                    // Otherwise, generate code for .into()
+                    quote! {
+                        partial.#ident.unwrap().into()
+                    }
+                };
+
                 field_names.push(name);
                 field_idents.push(ident);
-                field_types.push(ty);
+                field_types.push(new_ty);
+                field_conversions.push(conversion);
             }
         } else {
             panic!("PartialStruct macro only supports named fields.");
@@ -122,6 +168,7 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     }
 
     let expanded = quote! {
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         pub struct #partial_ident {
             #(pub #field_idents: std::option::Option<#field_types>,)*
         }
@@ -137,6 +184,12 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 Self {
                     #(#field_idents: None,)*
                 }
+            }
+        }
+
+        impl From<#partial_ident> for #name {
+            fn from(value: #partial_ident) -> Self {
+                <Self as FromPartial>::from_default(value)
             }
         }
 
@@ -157,8 +210,18 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 }
 
                 Ok(#name {
-                    #(#field_idents: partial.#field_idents.unwrap(),)*
+                    #(#field_idents: #field_conversions,)*
                 })
+            }
+
+            fn from_default(partial: Self::Partial) -> Self {
+                let mut default = Self::default();
+                #(
+                    if partial.#field_idents.is_some() {
+                        default.#field_idents = #field_conversions;
+                    }
+                )*
+                default
             }
         }
     };
@@ -175,8 +238,7 @@ impl Parse for MacroInput {
     fn parse(input: ParseStream) -> Result<Self> {
         let content;
         bracketed!(content in input);
-        let types =
-            Punctuated::<Type, Token![,]>::parse_terminated(&content)?;
+        let types = Punctuated::<Type, Token![,]>::parse_terminated(&content)?;
         let user_macro: Path = input.parse()?;
         Ok(MacroInput { types, user_macro })
     }
@@ -207,11 +269,9 @@ impl Parse for MacroInput {
 #[doc(hidden)]
 #[proc_macro]
 pub fn non_identity_pairs(input: TokenStream) -> TokenStream {
-    let MacroInput { types, user_macro } =
-        parse_macro_input!(input as MacroInput);
+    let MacroInput { types, user_macro } = parse_macro_input!(input as MacroInput);
 
-    let extracted: Vec<_> =
-        types.into_iter().map(|ty| extract_generics(&ty)).collect();
+    let extracted: Vec<_> = types.into_iter().map(|ty| extract_generics(&ty)).collect();
     let mut blocks = proc_macro2::TokenStream::new();
     for (x, x_constraints) in &extracted {
         for (y, y_constraints) in &extracted {
@@ -224,15 +284,10 @@ pub fn non_identity_pairs(input: TokenStream) -> TokenStream {
                 .chain(y_constraints.iter())
                 .map(|con| con.to_token_stream().to_string())
                 .collect();
-            let constraints = proc_macro2::TokenStream::from_str(
-                &constraints.join(","),
-            )
-            .unwrap();
+            let constraints = proc_macro2::TokenStream::from_str(&constraints.join(",")).unwrap();
 
             // Only implement when `X != Y`.
-            if x.to_token_stream().to_string()
-                != y.to_token_stream().to_string()
-            {
+            if x.to_token_stream().to_string() != y.to_token_stream().to_string() {
                 let expanded = quote! {
                     #user_macro!(#x, #y, #constraints);
                 };
@@ -252,27 +307,17 @@ fn extract_generics(ty: &Type) -> (Type, Option<Constraint>) {
     if let Type::Path(TypePath { path, .. }) = ty {
         for segment in &path.segments {
             let base = &segment.ident;
-            if let PathArguments::AngleBracketed(angle_bracketed) =
-                &segment.arguments
-            {
+            if let PathArguments::AngleBracketed(angle_bracketed) = &segment.arguments {
                 for arg in &angle_bracketed.args {
-                    if let GenericArgument::Constraint(constraint) = arg
-                    {
+                    if let GenericArgument::Constraint(constraint) = arg {
                         // To avoid name clashes, append the base type to the constraint types,
                         // e.g. `Foo<P: Bar>` changes `P` to `FooP`.
-                        let generic = format_ident!(
-                            "{}{}",
-                            base,
-                            constraint.ident
-                        );
+                        let generic = format_ident!("{}{}", base, constraint.ident);
 
                         // Create the new type that we'll actually use,
                         // e.g. `Foo<P: Bar>` becomes `Foo<FooP>`.
-                        ret_ty = syn::parse_str::<Type>(&format!(
-                            "{}<{}>",
-                            base, generic
-                        ))
-                        .expect("Failed to parse type with generics");
+                        ret_ty = syn::parse_str::<Type>(&format!("{}<{}>", base, generic))
+                            .expect("Failed to parse type with generics");
                         // let bounds = constraint.bounds.to_token_stream().to_string();
                         // let bounds = format!("{}: {}", generic, bounds);
 

@@ -9,11 +9,13 @@ use thiserror::Error;
 ///
 /// You should not implement
 /// this trait yourself but instead use the [`Partial` derive macro](../../infra_macros/derive.Partial.html).
-pub trait FromPartial: Sized {
+pub trait FromPartial: Sized + Default {
     type Partial;
 
     /// Create this struct from a fully-hydrated partial version.
     fn from(partial: Self::Partial) -> Result<Self, HydrateError>;
+
+    fn from_default(partial: Self::Partial) -> Self;
 }
 
 #[derive(Debug, Error)]
