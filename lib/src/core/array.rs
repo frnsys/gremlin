@@ -6,8 +6,10 @@ use std::{
 };
 
 use derive_more::Deref;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_with::serde_as;
+use serde::{
+    de::{self, DeserializeOwned},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 
 use super::numeric::Numeric;
 
@@ -18,11 +20,19 @@ use super::numeric::Numeric;
 /// You probably won't interact with this type directly
 /// but rather through one of its pre-defined aliases
 /// that represent fixed time intervals, e.g. [`ByDayHour`](super::ByDayHour).
-#[serde_as]
-#[derive(Debug, Clone, PartialEq, Deref, Serialize, Deserialize)]
+///
+/// Note that these arrays can be deserialized from a single value,
+/// which splats the value. Similarly, when serializing, if the array is all
+/// the same value, then it's serialized as a single value.
+#[derive(Debug, Clone, PartialEq, Deref, Deserialize)]
 #[serde(transparent)]
-#[serde(bound(serialize = "N: Serialize", deserialize = "N: DeserializeOwned"))]
-pub struct Array<N, const U: usize>(#[serde_as(as = "Box<[_; U]>")] Box<[N; U]>);
+#[serde(bound(
+    serialize = "N: Serialize",
+    deserialize = "N: DeserializeOwned + Clone"
+))]
+pub struct Array<N, const U: usize>(
+    #[serde(deserialize_with = "deserialize_splat_array")] Box<[N; U]>,
+);
 impl<N, const U: usize> Array<N, U> {
     pub fn new(vals: [N; U]) -> Self {
         Self(Box::new(vals))
@@ -374,6 +384,58 @@ impl<N: Numeric, const U: usize> std::fmt::Display for Array<N, U> {
     }
 }
 
+/// Deserialize an array from either a single value, which is splatted,
+/// or the full array.
+fn deserialize_splat_array<'de, D, N, const U: usize>(
+    deserializer: D,
+) -> Result<Box<[N; U]>, D::Error>
+where
+    D: Deserializer<'de>,
+    N: Clone + DeserializeOwned,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ArrayInner<N> {
+        Splat(N),
+        Array(Vec<N>),
+    }
+
+    let inner: ArrayInner<N> = Deserialize::deserialize(deserializer)?;
+
+    Ok(match inner {
+        ArrayInner::Splat(val) => {
+            let arr: [N; U] = std::array::from_fn(|_| val.clone());
+            Box::new(arr)
+        }
+        ArrayInner::Array(arr) => {
+            let n = arr.len();
+            let arr: [N; U] = arr
+                .try_into()
+                .map_err(|_| de::Error::invalid_length(n, &format!("length of {U}").as_str()))?;
+            Box::new(arr)
+        }
+    })
+}
+
+impl<N, const U: usize> Serialize for Array<N, U>
+where
+    N: Serialize + PartialEq + Clone,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let first = &self.0[0];
+        if self.0.iter().all(|x| x == first) {
+            // Serialize as a single value if all elements are the same
+            first.serialize(serializer)
+        } else {
+            // Serialize as an array otherwise
+            self.0.as_ref().serialize(serializer)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,5 +463,27 @@ mod tests {
         let b = Array::new([4., 5., 6.]);
         assert_eq!(a.clone() + &b, Array::new([5., 7., 9.]));
         assert_eq!(a.clone() - &b, Array::new([-3., -3., -3.]));
+    }
+
+    #[test]
+    fn test_array_deserialize() {
+        let raw = "[1, 2, 3, 4]";
+        let arr: Array<f32, 4> = serde_yaml::from_str(raw).unwrap();
+        assert_eq!(arr, Array::new([1., 2., 3., 4.]));
+
+        let raw = "1";
+        let arr: Array<f32, 4> = serde_yaml::from_str(raw).unwrap();
+        assert_eq!(arr, Array::splat(1.));
+    }
+
+    #[test]
+    fn test_array_serialize() {
+        let arr = Array::new([1., 2., 3., 4.]);
+        let raw = serde_json::to_string(&arr).unwrap();
+        assert_eq!(raw, "[1.0,2.0,3.0,4.0]");
+
+        let arr: Array<f32, 4> = Array::splat(1.);
+        let raw = serde_json::to_string(&arr).unwrap();
+        assert_eq!(raw, "1.0");
     }
 }
