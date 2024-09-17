@@ -15,6 +15,11 @@ pub trait FromPartial: Sized + Default {
     /// Create this struct from a fully-hydrated partial version.
     fn from(partial: Self::Partial) -> Result<Self, HydrateError>;
 
+    /// Apply a partial to this struct.
+    fn apply(&mut self, partial: Self::Partial);
+
+    /// Create this struct from a default instance,
+    /// and applying the partial.
     fn from_default(partial: Self::Partial) -> Self;
 }
 

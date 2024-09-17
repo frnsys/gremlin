@@ -214,13 +214,17 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 })
             }
 
-            fn from_default(partial: Self::Partial) -> Self {
-                let mut default = Self::default();
+            fn apply(&mut self, partial: Self::Partial) {
                 #(
                     if partial.#field_idents.is_some() {
-                        default.#field_idents = #field_conversions;
+                        self.#field_idents = #field_conversions;
                     }
                 )*
+            }
+
+            fn from_default(partial: Self::Partial) -> Self {
+                let mut default = Self::default();
+                default.apply(partial);
                 default
             }
         }
