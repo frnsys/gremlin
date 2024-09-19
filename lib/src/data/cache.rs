@@ -58,10 +58,7 @@ pub fn recache<T: DeserializeOwned + Serialize, P: AsRef<Path>>(
 }
 
 /// Load cached data. Will return `Err` if the cached file doesn't exist.
-pub fn cached<T: DeserializeOwned, P: AsRef<Path>>(
-    dir: &P,
-    name: &str,
-) -> Result<T> {
+pub fn cached<T: DeserializeOwned, P: AsRef<Path>>(dir: &P, name: &str) -> Result<T> {
     let path = cached_path(dir, name)?;
     let file = File::open(path)?;
     let reader = BufReader::new(file);
@@ -73,7 +70,7 @@ pub fn cached<T: DeserializeOwned, P: AsRef<Path>>(
 fn cached_path<P: AsRef<Path>>(dir: &P, name: &str) -> Result<PathBuf> {
     let dir: &Path = dir.as_ref();
     if !dir.exists() {
-        std::fs::create_dir_all(dir)?;
+        fs_err::create_dir_all(dir)?;
     }
 
     let mut path = dir.join(name);

@@ -2,10 +2,7 @@
 //! In short it learns a joint distribution over some
 //! set of variables.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use crate::file::write_yaml;
 use ahash::HashMap;
@@ -18,13 +15,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 #[cfg(feature = "plotting")]
-use crate::plot::{
-    CatScatterItem,
-    Plots,
-    ScatterItem,
-    StaticChart,
-    Symbol,
-};
+use crate::plot::{CatScatterItem, Plots, ScatterItem, StaticChart, Symbol};
 
 use super::sampler::{Column, Sampler, SamplerError};
 use crate::data::impute::*;
@@ -57,10 +48,7 @@ pub struct ImputedColumn {
     pub impute_with: Option<ImputeStrategy>,
 }
 impl ImputedColumn {
-    pub fn new(
-        column: Column,
-        impute_with: Option<ImputeStrategy>,
-    ) -> ImputedColumn {
+    pub fn new(column: Column, impute_with: Option<ImputeStrategy>) -> ImputedColumn {
         ImputedColumn {
             column,
             impute_with,
@@ -83,8 +71,7 @@ impl PmlModel {
         columns: &[ImputedColumn],
         save_dir: PathBuf,
     ) -> Result<PmlModel> {
-        let cols: Vec<_> =
-            columns.iter().map(|col| col.name.to_string()).collect();
+        let cols: Vec<_> = columns.iter().map(|col| col.name.to_string()).collect();
         let mut df = CsvReader::from_path(csv_path)?
             .has_header(true)
             .with_row_count(Some(RowCount {
@@ -127,28 +114,25 @@ impl PmlModel {
     /// Fit/train the model. This isn't necessary
     /// if the model has already been fit and loaded.
     pub fn fit(&mut self, iters: usize) {
-        let run_config =
-            EngineUpdateConfig::new().n_iters(iters).transitions(vec![
-                // See <https://github.com/promised-ai/lace/issues/148>
-                // > Currently Engine::run uses slice for row and column transitions, which can be slow to converge for large tables because they don't propose large moves. We should use both slice and sams on the rows and gibbs as default for columns.
-                StateTransition::ColumnAssignment(ColAssignAlg::Gibbs),
-                StateTransition::StateAlpha,
-                StateTransition::RowAssignment(RowAssignAlg::Sams),
-                StateTransition::ComponentParams,
-                StateTransition::RowAssignment(RowAssignAlg::Slice),
-                StateTransition::ComponentParams,
-                StateTransition::ViewAlphas,
-                StateTransition::FeaturePriors,
-            ]);
+        let run_config = EngineUpdateConfig::new().n_iters(iters).transitions(vec![
+            // See <https://github.com/promised-ai/lace/issues/148>
+            // > Currently Engine::run uses slice for row and column transitions, which can be slow to converge for large tables because they don't propose large moves. We should use both slice and sams on the rows and gibbs as default for columns.
+            StateTransition::ColumnAssignment(ColAssignAlg::Gibbs),
+            StateTransition::StateAlpha,
+            StateTransition::RowAssignment(RowAssignAlg::Sams),
+            StateTransition::ComponentParams,
+            StateTransition::RowAssignment(RowAssignAlg::Slice),
+            StateTransition::ComponentParams,
+            StateTransition::ViewAlphas,
+            StateTransition::FeaturePriors,
+        ]);
         self.engine
             .update(run_config.clone(), ProgressBar::new())
             .unwrap();
 
         // Create missing parent directories if needed
-        fs::create_dir_all(
-            self.save_dir.parent().expect("Has a parent directory"),
-        )
-        .expect("Can create parent directories");
+        fs_err::create_dir_all(self.save_dir.parent().expect("Has a parent directory"))
+            .expect("Can create parent directories");
         self.engine
             .save(&self.save_dir, SerializedType::Yaml)
             .unwrap();
@@ -207,17 +191,13 @@ impl PmlModel {
                     data.push((
                         i,
                         j,
-                        oracle.depprob(
-                            col.name.clone(),
-                            col.name.clone(),
-                        )? as f32,
+                        oracle.depprob(col.name.clone(), col.name.clone())? as f32,
                     ));
                 }
             }
         }
 
-        let col_names: Vec<_> =
-            self.columns.iter().map(|c| c.name.as_str()).collect();
+        let col_names: Vec<_> = self.columns.iter().map(|c| c.name.as_str()).collect();
         StaticChart::<()>::correlation(&col_names, data)
             .with_title("PML Dependency Matrix")
             .render((1200, 800), save_path);
@@ -232,10 +212,8 @@ impl PmlModel {
         columns: &[&'a str],
     ) -> Result<Vec<HashMap<&str, f32>>, SamplerError> {
         if self.sampler.is_none() {
-            let columns =
-                self.columns.iter().map(|c| c.column.clone()).collect();
-            self.sampler =
-                Some(Sampler::new(self.engine.clone(), columns));
+            let columns = self.columns.iter().map(|c| c.column.clone()).collect();
+            self.sampler = Some(Sampler::new(self.engine.clone(), columns));
         }
         self.sampler
             .as_ref()
@@ -247,8 +225,7 @@ impl PmlModel {
     pub fn summarize(&self) {
         let oracle = Oracle::from_engine(self.engine.clone());
         for col in &self.columns {
-            let summary =
-                oracle.summarize_col(col.name.clone()).unwrap();
+            let summary = oracle.summarize_col(col.name.clone()).unwrap();
             println!("{:?} -> {:?}", col, summary);
         }
     }
@@ -260,8 +237,7 @@ fn prepare_engine(save_dir: &Path, df: DataFrame) -> Result<Engine> {
         Ok(Engine::load(save_dir)?)
     } else {
         let rng = Xoshiro256Plus::from_entropy();
-        let codebook =
-            Codebook::from_df(&df, None, None, false).unwrap();
+        let codebook = Codebook::from_df(&df, None, None, false).unwrap();
         Ok(Engine::new(
             32, // n_states
             codebook,
@@ -337,8 +313,7 @@ pub fn plot_pml_samples(
         .has_header(true)
         .finish()?;
     let series = df.column(group_col).unwrap().unique_stable().unwrap();
-    let group_names: Vec<&str> =
-        series.str().unwrap().into_no_null_iter().collect();
+    let group_names: Vec<&str> = series.str().unwrap().into_no_null_iter().collect();
 
     for group in group_names {
         info!("Sampling for {}", group);
@@ -363,10 +338,7 @@ pub fn plot_pml_samples(
                 let ref_vals_df = df
                     .clone()
                     .lazy()
-                    .filter(
-                        polars::prelude::col(group_col)
-                            .eq(polars::prelude::lit(group)),
-                    )
+                    .filter(polars::prelude::col(group_col).eq(polars::prelude::lit(group)))
                     .collect()
                     .unwrap();
 

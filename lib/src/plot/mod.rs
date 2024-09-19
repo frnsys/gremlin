@@ -41,48 +41,26 @@ pub use charming::element::{LineStyleType, Symbol};
 use charming::{
     component::{Axis, Grid, Legend, Title, VisualMap},
     datatype::{
-        CompositeValue,
-        DataFrame,
-        DataPoint,
-        DataSource,
-        Dataset,
-        NumericValue,
-        Transform,
+        CompositeValue, DataFrame, DataPoint, DataSource, Dataset, NumericValue, Transform,
     },
     df,
     element::{
-        AxisLabel,
-        AxisPointer,
-        AxisType,
-        DimensionEncode,
-        Emphasis,
-        ItemStyle,
-        Label,
-        LineStyle,
-        MarkLine,
-        MarkLineData,
-        MarkLineVariant,
-        NameLocation,
-        Orient,
-        SplitArea,
-        SplitLine,
+        AxisLabel, AxisPointer, AxisType, DimensionEncode, Emphasis, ItemStyle, Label, LineStyle,
+        MarkLine, MarkLineData, MarkLineVariant, NameLocation, Orient, SplitArea, SplitLine,
         TextStyle,
     },
     series::{Bar, Boxplot, Heatmap, Line, Scatter},
     theme::Theme,
-    Chart,
-    ImageRenderer,
+    Chart, ImageRenderer,
 };
 use image::{
     imageops::{crop, overlay},
-    ImageFormat,
-    Rgba,
-    RgbaImage,
+    ImageFormat, Rgba, RgbaImage,
 };
 
 const COLORS: &[&str] = &[
-    "#4992ff", "#7cffb2", "#fddd60", "#ff6e76", "#58d9f9", "#05c091",
-    "#ff8a45", "#8143cf", "#dd79ff", "#4a698c", "#e9d8a6",
+    "#4992ff", "#7cffb2", "#fddd60", "#ff6e76", "#58d9f9", "#05c091", "#ff8a45", "#8143cf",
+    "#dd79ff", "#4a698c", "#e9d8a6",
 ];
 
 /// HACK: A wrapper to create a singleton `ImageRenderer`.
@@ -96,13 +74,11 @@ pub struct SafeImageRenderer {
 }
 impl Default for SafeImageRenderer {
     fn default() -> Self {
-        let (command_sender, command_receiver) =
-            mpsc::channel::<((u32, u32), Chart)>();
+        let (command_sender, command_receiver) = mpsc::channel::<((u32, u32), Chart)>();
         let (response_sender, response_receiver) = mpsc::channel();
         thread::spawn(move || {
             for (size, chart) in command_receiver {
-                let mut renderer = ImageRenderer::new(size.0, size.1)
-                    .theme(Theme::Dark);
+                let mut renderer = ImageRenderer::new(size.0, size.1).theme(Theme::Dark);
                 let svg_data = renderer.render(&chart).unwrap();
                 response_sender.send(svg_data).unwrap();
             }
@@ -246,8 +222,7 @@ impl<S: Style> StaticChart<S> {
     where
         DataSource: From<Vec<Vec<T>>>,
     {
-        let (labels, values): (Vec<_>, Vec<_>) =
-            data.into_iter().unzip();
+        let (labels, values): (Vec<_>, Vec<_>) = data.into_iter().unzip();
         let transform = format!(
             r#"{{ "type": "boxplot", "config": {{ "itemNameFormatter": ({{value}}) => {:?}[value] }} }}"#,
             labels
@@ -276,17 +251,12 @@ impl<S: Style> StaticChart<S> {
         let value_axis = Axis::new()
             .type_(AxisType::Value)
             .max("dataMax")
-            .axis_label(
-                AxisLabel::new()
-                    .formatter(format!("{{value}}{units}").as_str()),
-            )
+            .axis_label(AxisLabel::new().formatter(format!("{{value}}{units}").as_str()))
             .split_area(SplitArea::new().show(true));
-        let mut outliers =
-            Scatter::new().name("Outliers").dataset_index(2);
+        let mut outliers = Scatter::new().name("Outliers").dataset_index(2);
 
         let (x_axis, y_axis) = if horizontal {
-            outliers =
-                outliers.encode(DimensionEncode::new().x(1).y(0));
+            outliers = outliers.encode(DimensionEncode::new().x(1).y(0));
             (value_axis, group_axis)
         } else {
             (group_axis, value_axis)
@@ -310,10 +280,7 @@ impl<S: Style> StaticChart<S> {
 
     /// Plots multiple scatter plots, where each subplot shows one set of
     /// values for different groups.
-    pub fn cat_scatter(
-        data: CatScatterGroup<f32>,
-        horizontal: bool,
-    ) -> Self {
+    pub fn cat_scatter(data: CatScatterGroup<f32>, horizontal: bool) -> Self {
         let mut chart = StaticChart::<S>::base_chart();
 
         // Have to do some manual layout.
@@ -332,13 +299,10 @@ impl<S: Style> StaticChart<S> {
                 .name(var)
                 .axis_label(AxisLabel::new().show(false))
                 .name_location(NameLocation::Center);
-            let value_axis =
-                Axis::new()
-                    .type_(AxisType::Value)
-                    .grid_index(i as f64)
-                    .axis_label(AxisLabel::new().formatter(
-                        format!("{{value}}{units}").as_str(),
-                    ));
+            let value_axis = Axis::new()
+                .type_(AxisType::Value)
+                .grid_index(i as f64)
+                .axis_label(AxisLabel::new().formatter(format!("{{value}}{units}").as_str()));
 
             let (x_axis, y_axis) = if horizontal {
                 (value_axis, group_axis)
@@ -352,10 +316,7 @@ impl<S: Style> StaticChart<S> {
                     Grid::new()
                         .right(format!("{}%", right + margin))
                         .contain_label(true)
-                        .width(format!(
-                            "{}%",
-                            sub_width - (margin * 2.)
-                        )),
+                        .width(format!("{}%", sub_width - (margin * 2.))),
                 )
                 .x_axis(x_axis)
                 .y_axis(y_axis);
@@ -405,10 +366,7 @@ impl<S: Style> StaticChart<S> {
     ///
     /// Legend rendering here is handled in a hacky way to ensure it won't overlap
     /// the chart; see the note on [`StaticChart::legend`].
-    pub fn timeseries<
-        T: Into<NumericValue> + Clone,
-        L: Into<String> + Clone,
-    >(
+    pub fn timeseries<T: Into<NumericValue> + Clone, L: Into<String> + Clone>(
         data: TimeSeriesGroup<T>,
         x_axis_labels: &[L],
         units: &str,
@@ -427,9 +385,7 @@ impl<S: Style> StaticChart<S> {
             .y_axis(
                 Axis::new()
                     .type_(AxisType::Value)
-                    .axis_label(AxisLabel::new().formatter(
-                        format!("{{value}}{units}").as_str(),
-                    ))
+                    .axis_label(AxisLabel::new().formatter(format!("{{value}}{units}").as_str()))
                     .axis_pointer(AxisPointer::new().snap(true)),
             );
 
@@ -451,8 +407,7 @@ impl<S: Style> StaticChart<S> {
 
         // Render the lines and the legend.
         for (i, (label, values)) in data.into_iter().enumerate() {
-            let style =
-                S::get_style(&label, i).unwrap_or_else(|| get_style(i));
+            let style = S::get_style(&label, i).unwrap_or_else(|| get_style(i));
             chart = chart.series(
                 Line::new()
                     .name(label.clone())
@@ -471,8 +426,7 @@ impl<S: Style> StaticChart<S> {
 
             // For the legend we render empty datasets
             // so that only the legend shows up.
-            let style =
-                S::get_style(&label, i).unwrap_or_else(|| get_style(i));
+            let style = S::get_style(&label, i).unwrap_or_else(|| get_style(i));
             legend = legend.series(
                 Line::new()
                     .name(label)
@@ -480,11 +434,7 @@ impl<S: Style> StaticChart<S> {
                     .symbol(style.symbol)
                     .symbol_size(style.symbol_size)
                     .item_style(ItemStyle::new().color(style.color))
-                    .line_style(
-                        LineStyle::new()
-                            .color(style.color)
-                            .type_(style.line),
-                    )
+                    .line_style(LineStyle::new().color(style.color).type_(style.line))
                     .data::<f32>(vec![]),
             );
         }
@@ -518,9 +468,7 @@ impl<S: Style> StaticChart<S> {
                     .min(min)
                     .max(max)
                     .type_(AxisType::Value)
-                    .axis_label(AxisLabel::new().formatter(
-                        format!("{{value}}{units}").as_str(),
-                    ))
+                    .axis_label(AxisLabel::new().formatter(format!("{{value}}{units}").as_str()))
                     .axis_pointer(AxisPointer::new().snap(true)),
             );
 
@@ -553,9 +501,7 @@ impl<S: Style> StaticChart<S> {
                         CompositeValue::from("-")
                     } else {
                         // Hack to limit decimal places/avoid float precision issues
-                        CompositeValue::from(
-                            f64::trunc(d.2 as f64 * 100.0) / 100.0,
-                        )
+                        CompositeValue::from(f64::trunc(d.2 as f64 * 100.0) / 100.0)
                     }
                 ]
             })
@@ -606,16 +552,10 @@ impl<S: Style> StaticChart<S> {
         }
     }
 
-    pub fn with_scatter(
-        mut self,
-        name: &str,
-        points: &[(f32, f32)],
-    ) -> Self {
+    pub fn with_scatter(mut self, name: &str, points: &[(f32, f32)]) -> Self {
         let points = points
             .iter()
-            .map(|(x, y)| {
-                DataPoint::from(CompositeValue::from(vec![*x, *y]))
-            })
+            .map(|(x, y)| DataPoint::from(CompositeValue::from(vec![*x, *y])))
             .collect();
 
         self.chart = self.chart.series(
@@ -629,10 +569,7 @@ impl<S: Style> StaticChart<S> {
         self
     }
 
-    pub fn with_scatters(
-        mut self,
-        scatters: &[(String, Vec<(f32, f32)>)],
-    ) -> Self {
+    pub fn with_scatters(mut self, scatters: &[(String, Vec<(f32, f32)>)]) -> Self {
         for (name, points) in scatters {
             self = self.with_scatter(name, points);
         }
@@ -642,12 +579,8 @@ impl<S: Style> StaticChart<S> {
     /// Add a marker line to the chart.
     pub fn with_line(mut self, marker: LineMarker) -> Self {
         let (label, line) = match marker {
-            LineMarker::Vertical(label, val) => {
-                (label, MarkLineData::new().x_axis(val))
-            }
-            LineMarker::Horizontal(label, val) => {
-                (label, MarkLineData::new().y_axis(val))
-            }
+            LineMarker::Vertical(label, val) => (label, MarkLineData::new().x_axis(val)),
+            LineMarker::Horizontal(label, val) => (label, MarkLineData::new().y_axis(val)),
         };
 
         // Kind of hacky, but add an empty scatter plot
@@ -674,9 +607,7 @@ impl<S: Style> StaticChart<S> {
 
     /// Add a title *and* a subtitle to the chart.
     pub fn with_titles(mut self, title: &str, subtitle: &str) -> Self {
-        self.chart = self
-            .chart
-            .title(Title::new().text(title).subtext(subtitle));
+        self.chart = self.chart.title(Title::new().text(title).subtext(subtitle));
         self
     }
 
@@ -692,8 +623,7 @@ impl<S: Style> StaticChart<S> {
         // Render the legend to an in-memory image, trimming
         // the whitespace/empty space.
         let legend = legend.map(|legend| {
-            let svg_data =
-                SafeImageRenderer::render_chart_svg(size, legend);
+            let svg_data = SafeImageRenderer::render_chart_svg(size, legend);
             let mut img = svg_to_png(svg_data);
             trim(&mut img, (18, 18, 18)) // Equivalent to #121212
         });
@@ -718,10 +648,7 @@ fn trim(img: &mut RgbaImage, empty_color: (u8, u8, u8)) -> RgbaImage {
     let mut ys = vec![];
     for (x, y, px) in img.enumerate_pixels() {
         // let alpha = px[3];
-        if px[0] != empty_color.0
-            || px[1] != empty_color.1
-            || px[2] != empty_color.2
-        {
+        if px[0] != empty_color.0 || px[1] != empty_color.1 || px[2] != empty_color.2 {
             xs.push(x);
             ys.push(y);
         }
@@ -735,8 +662,7 @@ fn trim(img: &mut RgbaImage, empty_color: (u8, u8, u8)) -> RgbaImage {
         let max_x = xs.iter().max().unwrap();
         let min_y = ys.iter().min().unwrap();
         let max_y = ys.iter().max().unwrap();
-        crop(img, *min_x, *min_y, max_x - min_x, max_y - min_y)
-            .to_image()
+        crop(img, *min_x, *min_y, max_x - min_x, max_y - min_y).to_image()
     }
 }
 
@@ -774,7 +700,7 @@ impl Plots {
     /// specified directory.
     pub fn new<P: AsRef<Path>>(save_dir: P) -> Plots {
         let save_dir = save_dir.as_ref().to_path_buf();
-        std::fs::create_dir_all(&save_dir).unwrap();
+        fs_err::create_dir_all(&save_dir).unwrap();
         Plots {
             dir: save_dir,
             paths: vec![],
@@ -783,11 +709,7 @@ impl Plots {
 
     /// Insert a new plot with the provided filename.
     /// The plot will be created using the provided function.
-    pub fn insert(
-        &mut self,
-        fname: &str,
-        chart_fn: impl FnOnce() -> StaticChart,
-    ) {
+    pub fn insert(&mut self, fname: &str, chart_fn: impl FnOnce() -> StaticChart) {
         let chart = chart_fn();
         let save_path = self.dir.join(Path::new(fname));
         chart.render((1200, 800), &save_path);
@@ -818,19 +740,11 @@ fn svg_to_png(svg_data: String) -> RgbaImage {
     let opt = resvg::usvg::Options::default();
     let mut fontdb = resvg::usvg::fontdb::Database::new();
     fontdb.load_system_fonts();
-    let tree = resvg::usvg::Tree::from_data(
-        svg_data.as_bytes(),
-        &opt,
-        &fontdb,
-    )
-    .unwrap();
+    let tree = resvg::usvg::Tree::from_data(svg_data.as_bytes(), &opt, &fontdb).unwrap();
 
     let pixmap_size = tree.size().to_int_size();
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(
-        pixmap_size.width() * 2,
-        pixmap_size.height() * 2,
-    )
-    .unwrap();
+    let mut pixmap =
+        resvg::tiny_skia::Pixmap::new(pixmap_size.width() * 2, pixmap_size.height() * 2).unwrap();
     resvg::render(
         &tree,
         resvg::tiny_skia::Transform::from_scale(2., 2.),
@@ -843,11 +757,7 @@ fn svg_to_png(svg_data: String) -> RgbaImage {
 }
 
 /// Convenience function for producing a boxplot.
-pub fn boxplot<
-    K: std::hash::Hash + std::fmt::Display + Clone,
-    V,
-    T: Into<NumericValue>,
->(
+pub fn boxplot<K: std::hash::Hash + std::fmt::Display + Clone, V, T: Into<NumericValue>>(
     groups: &HashMap<K, Vec<V>>,
     title: &str,
     key_fn: impl FnMut(&V) -> Option<T> + Clone,
@@ -857,24 +767,18 @@ where
     DataSource: From<Vec<Vec<T>>>,
 {
     let data = extract_group_data(groups, key_fn);
-    StaticChart::boxplot(data, units, true)
-        .with_titles(title, "(#) = Sample Count")
+    StaticChart::boxplot(data, units, true).with_titles(title, "(#) = Sample Count")
 }
 
 /// Extract a pipeline group's data for plotting.
-fn extract_group_data<
-    K: std::hash::Hash + std::fmt::Display + Clone,
-    V,
-    T: Into<NumericValue>,
->(
+fn extract_group_data<K: std::hash::Hash + std::fmt::Display + Clone, V, T: Into<NumericValue>>(
     groups: &HashMap<K, Vec<V>>,
     key_fn: impl FnMut(&V) -> Option<T> + Clone,
 ) -> Vec<(String, Vec<T>)> {
     let mut to_boxplot: Vec<_> = groups
         .iter()
         .map(move |(k, vs)| {
-            let valid: Vec<_> =
-                vs.iter().filter_map(key_fn.clone()).collect();
+            let valid: Vec<_> = vs.iter().filter_map(key_fn.clone()).collect();
             (format!("{k} ({})", valid.len()), valid)
         })
         .collect();

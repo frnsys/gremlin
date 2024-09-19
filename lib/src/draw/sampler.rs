@@ -19,13 +19,7 @@ use std::{marker::PhantomData, path::Path};
 
 use ahash::{HashMap, HashSet};
 pub use lace::{self, Datum};
-use lace::{
-    metadata::Error as LaceError,
-    Category,
-    Engine,
-    Oracle,
-    OracleT,
-};
+use lace::{metadata::Error as LaceError, Category, Engine, Oracle, OracleT};
 use rand::rngs::ThreadRng;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -80,9 +74,7 @@ impl Constraint {
             Self::UpperBound(c) => value < *c,
             Self::UpperBoundInclusive(c) => value <= *c,
             Self::Range(l, h) => value > *l && value < *h,
-            Self::RangeInclusive(l, h) => {
-                value >= *l && value <= *h
-            }
+            Self::RangeInclusive(l, h) => value >= *l && value <= *h,
         }
     }
 }
@@ -95,10 +87,7 @@ pub struct Column {
     pub constraint: Option<Constraint>,
 }
 impl Column {
-    pub fn new(
-        name: String,
-        constraint: Option<Constraint>,
-    ) -> Column {
+    pub fn new(name: String, constraint: Option<Constraint>) -> Column {
         Column { name, constraint }
     }
 }
@@ -113,10 +102,7 @@ impl From<String> for Column {
 
 /// This lets use the custom [`Column`] type for indexing with lace.
 impl lace::ColumnIndex for Column {
-    fn col_ix(
-        &self,
-        codebook: &lace::prelude::Codebook,
-    ) -> Result<usize, lace::error::IndexError> {
+    fn col_ix(&self, codebook: &lace::prelude::Codebook) -> Result<usize, lace::error::IndexError> {
         self.name.col_ix(codebook)
     }
 
@@ -140,18 +126,14 @@ pub struct Sampler<T: Sampleable = ()> {
     constraints: HashMap<String, Constraint>,
 }
 impl<T: Sampleable> Sampler<T> {
-    pub fn new(
-        engine: Engine,
-        columns: Vec<Column>,
-    ) -> Sampler<T> {
+    pub fn new(engine: Engine, columns: Vec<Column>) -> Sampler<T> {
         let oracle = Oracle::from_engine(engine);
 
         let constraints: HashMap<String, Constraint> = columns
             .iter()
             .filter_map(|col| {
-                col.constraint.map(|constraint| {
-                    (col.name.to_string(), constraint)
-                })
+                col.constraint
+                    .map(|constraint| (col.name.to_string(), constraint))
             })
             .collect();
 
@@ -165,15 +147,12 @@ impl<T: Sampleable> Sampler<T> {
 
     /// Create a sampler by loading a pre-learned [`lace::Engine`].
     /// The model folder usually ends with `.lace`.
-    pub fn load(
-        path: &Path,
-    ) -> Result<Sampler<T>, SamplerError> {
+    pub fn load(path: &Path) -> Result<Sampler<T>, SamplerError> {
         let engine = Engine::load(path)?;
 
         let column_path = path.join("columns.yml");
-        let reader = std::fs::File::open(column_path)?;
-        let columns: Vec<Column> =
-            serde_yaml::from_reader(reader)?;
+        let reader = fs_err::File::open(column_path)?;
+        let columns: Vec<Column> = serde_yaml::from_reader(reader)?;
         // let columns: Vec<String> = oracle
         //     .codebook
         //     .col_metadata
@@ -184,14 +163,9 @@ impl<T: Sampleable> Sampler<T> {
     }
 
     /// Sample across all columns using the given values.
-    pub fn sample(
-        &self,
-        n_samples: usize,
-        given: &T::Given,
-    ) -> Result<Vec<T>, SamplerError> {
+    pub fn sample(&self, n_samples: usize, given: &T::Given) -> Result<Vec<T>, SamplerError> {
         let in_data = given.to_data();
-        let given_cols: Vec<_> =
-            in_data.iter().map(|g| g.0).collect();
+        let given_cols: Vec<_> = in_data.iter().map(|g| g.0).collect();
         let columns: Vec<_> = self
             .columns
             .iter()
@@ -236,49 +210,37 @@ impl<T: Sampleable> Sampler<T> {
         let mut failed_columns = HashSet::default();
         let mut fallback_sampling = false;
         while samples.len() < n_samples {
-            let results = self.oracle.simulate(
-                columns, &given, n_samples, None, &mut rng,
-            )?;
-            let valid =
-                results
-                    .into_iter()
-                    .filter_map(|sample| {
-                        sample
-                            .into_iter()
-                            .zip(columns)
-                            .map(|(val, col)| {
-                                let (maybe_val, failed) = self
-                                    .extract_and_check_value(
-                                        val,
-                                        col,
-                                        fallback_sampling,
-                                        &mut rng,
-                                    )?;
-                                if failed {
-                                    failed_columns.insert(col);
-                                }
-                                Ok(maybe_val
-                                    .map(|val| (*col, val)))
-                            })
-                            .collect::<Result<
-                                Option<HashMap<_, _>>,
-                                SamplerError,
-                            >>()
-                            .transpose()
-                    })
-                    .collect::<Result<
-                        Vec<HashMap<&str, f32>>,
-                        SamplerError,
-                    >>()?;
+            let results = self
+                .oracle
+                .simulate(columns, &given, n_samples, None, &mut rng)?;
+            let valid = results
+                .into_iter()
+                .filter_map(|sample| {
+                    sample
+                        .into_iter()
+                        .zip(columns)
+                        .map(|(val, col)| {
+                            let (maybe_val, failed) = self.extract_and_check_value(
+                                val,
+                                col,
+                                fallback_sampling,
+                                &mut rng,
+                            )?;
+                            if failed {
+                                failed_columns.insert(col);
+                            }
+                            Ok(maybe_val.map(|val| (*col, val)))
+                        })
+                        .collect::<Result<Option<HashMap<_, _>>, SamplerError>>()
+                        .transpose()
+                })
+                .collect::<Result<Vec<HashMap<&str, f32>>, SamplerError>>()?;
             samples.extend(valid);
 
             n_attempts += 1;
             if n_attempts == max_tries {
                 warn!("Sampling still not finished after {max_tries} attempts. There may be an unsatisfiable constraint or the model may need more fitting time.");
-                warn!(
-                    "Problematic columns: {:?}",
-                    failed_columns
-                );
+                warn!("Problematic columns: {:?}", failed_columns);
                 warn!("From now on we'll sample unconditionally for the failed columns.");
                 fallback_sampling = true;
             }
@@ -295,9 +257,10 @@ impl<T: Sampleable> Sampler<T> {
     ) -> Result<(Option<f32>, bool), SamplerError> {
         // Note: The only other option here is `to_u8_opt()`
         // for categorical data.
-        let val = val.to_f64_opt().ok_or_else(|| {
-            SamplerError::IncorrectColumnType(col.to_string())
-        })? as f32;
+        let val = val
+            .to_f64_opt()
+            .ok_or_else(|| SamplerError::IncorrectColumnType(col.to_string()))?
+            as f32;
         if let Some(constraint) = self.constraints.get(col) {
             let ok = constraint.is_valid(val);
             if ok {
@@ -314,11 +277,7 @@ impl<T: Sampleable> Sampler<T> {
                     )?;
                     let val = results[0][0]
                         .to_f64_opt()
-                        .ok_or_else(|| {
-                            SamplerError::IncorrectColumnType(
-                                col.to_string(),
-                            )
-                        })?
+                        .ok_or_else(|| SamplerError::IncorrectColumnType(col.to_string()))?
                         as f32;
                     if constraint.is_valid(val) {
                         return Ok((Some(val), true));
@@ -335,20 +294,14 @@ impl<T: Sampleable> Sampler<T> {
 /// Implement this so a type can be sampled using a [`Sampler`].
 pub trait Sampleable: Sized {
     type Given: Given;
-    fn from_data(
-        given: &Self::Given,
-        data: HashMap<&str, f32>,
-    ) -> Result<Self, SamplerError>;
+    fn from_data(given: &Self::Given, data: HashMap<&str, f32>) -> Result<Self, SamplerError>;
 }
 
 /// Dummy implementation for samplers that
 /// just need to return column data.
 impl Sampleable for () {
     type Given = ();
-    fn from_data(
-        _given: &Self::Given,
-        _data: HashMap<&str, f32>,
-    ) -> Result<Self, SamplerError> {
+    fn from_data(_given: &Self::Given, _data: HashMap<&str, f32>) -> Result<Self, SamplerError> {
         Ok(())
     }
 }

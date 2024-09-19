@@ -3,10 +3,8 @@
 
 mod path;
 
-use std::{
-    fs::{File, OpenOptions},
-    path::{Path, PathBuf},
-};
+use fs_err::{File, OpenOptions};
+use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use itertools::multizip;
