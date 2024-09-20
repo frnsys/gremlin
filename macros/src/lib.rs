@@ -214,6 +214,14 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 })
             }
 
+            fn into_partial(self) -> Self::Partial {
+                let mut partial = Self::Partial::default();
+                #(
+                    partial.#field_idents = Some(self.#field_idents);
+                )*
+                partial
+            }
+
             fn apply(&mut self, partial: Self::Partial) {
                 #(
                     if partial.#field_idents.is_some() {
