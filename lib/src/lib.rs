@@ -26,3 +26,27 @@ pub mod plot;
 
 pub use gremlin_macros::*;
 pub use paste;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_derive_partial() {
+        use crate::data::{FromPartial, HydrateError};
+        #[derive(Debug, Default, Partial, Clone, serde::Serialize, serde::Deserialize)]
+        struct TestInner {
+            a: String,
+        }
+
+        #[derive(Default, Partial)]
+        struct Test {
+            a: u32,
+            b: i32,
+            c: Vec<TestInner>,
+
+            #[partial]
+            d: Vec<TestInner>,
+        }
+    }
+}

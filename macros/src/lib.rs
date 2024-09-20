@@ -107,7 +107,8 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     let mut field_names = vec![];
     let mut field_idents = vec![];
     let mut field_types = vec![];
-    let mut field_conversions = vec![];
+    let mut field_partial_to_full = vec![];
+    let mut field_full_to_partial = vec![];
     if let Data::Struct(data) = &input.data {
         if let Fields::Named(fields) = &data.fields {
             for f in &fields.named {
@@ -143,7 +144,8 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                     }
                 }
 
-                let conversion = if is_vec_type(&new_ty) {
+                // Going from the partial Option<T> to T.
+                let partial_to_full = if is_vec_type(&new_ty) {
                     // If it's a Vec, generate code for map(Into::into)
                     quote! {
                         partial.#ident.unwrap().into_iter().map(Into::into).collect()
@@ -155,10 +157,24 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                     }
                 };
 
+                // Going from the full T to Option<T>.
+                let full_to_partial = if is_vec_type(&new_ty) {
+                    // If it's a Vec, generate code for map(Into::into)
+                    quote! {
+                        full.#ident.into_iter().map(Into::into).collect()
+                    }
+                } else {
+                    // Otherwise, generate code for .into()
+                    quote! {
+                        full.#ident.into()
+                    }
+                };
+
                 field_names.push(name);
                 field_idents.push(ident);
                 field_types.push(new_ty);
-                field_conversions.push(conversion);
+                field_partial_to_full.push(partial_to_full);
+                field_full_to_partial.push(full_to_partial);
             }
         } else {
             panic!("PartialStruct macro only supports named fields.");
@@ -192,6 +208,15 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 <Self as FromPartial>::from_default(value)
             }
         }
+        impl From<#name> for #partial_ident {
+            fn from(full: #name) -> Self {
+                let mut partial = Self::default();
+                #(
+                    partial.#field_idents = Some(#field_full_to_partial);
+                )*
+                partial
+            }
+        }
 
         impl FromPartial for #name {
             type Partial = #partial_ident;
@@ -210,22 +235,14 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 }
 
                 Ok(#name {
-                    #(#field_idents: #field_conversions,)*
+                    #(#field_idents: #field_partial_to_full,)*
                 })
-            }
-
-            fn into_partial(self) -> Self::Partial {
-                let mut partial = Self::Partial::default();
-                #(
-                    partial.#field_idents = Some(self.#field_idents);
-                )*
-                partial
             }
 
             fn apply(&mut self, partial: Self::Partial) {
                 #(
                     if partial.#field_idents.is_some() {
-                        self.#field_idents = #field_conversions;
+                        self.#field_idents = #field_partial_to_full;
                     }
                 )*
             }
