@@ -184,7 +184,7 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     }
 
     let expanded = quote! {
-        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
         pub struct #partial_ident {
             #(pub #field_idents: std::option::Option<#field_types>,)*
         }

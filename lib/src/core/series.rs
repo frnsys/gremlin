@@ -15,11 +15,7 @@ use std::{
     path::Path,
 };
 
-use generic_array::{
-    functional::FunctionalSequence,
-    ArrayLength,
-    GenericArray,
-};
+use generic_array::{functional::FunctionalSequence, ArrayLength, GenericArray};
 use itertools::{traits::HomogeneousTuple, Itertools};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use typenum::{Add1, B1, U};
@@ -55,9 +51,7 @@ pub enum Lerp {
 /// using [`TimeSeries::to_csv`].
 pub trait Interval {
     type KeySize: ArrayLength + Add<B1>;
-    type Key: Into<GenericArray<u16, Self::KeySize>>
-        + Copy
-        + HomogeneousTuple<Item = u16>;
+    type Key: Into<GenericArray<u16, Self::KeySize>> + Copy + HomogeneousTuple<Item = u16>;
     fn key_columns() -> GenericArray<&'static str, Self::KeySize>;
 }
 
@@ -91,9 +85,7 @@ impl Interval for Hourly {
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
 #[serde(bound(serialize = "I::Key: Serialize, T: Serialize"))]
-#[serde(bound(
-    deserialize = "I::Key: DeserializeOwned, T: DeserializeOwned"
-))]
+#[serde(bound(deserialize = "I::Key: DeserializeOwned, T: DeserializeOwned"))]
 pub struct TimeSeries<T, I: Interval> {
     data: Vec<(I::Key, T)>,
     marker: PhantomData<I>,
@@ -140,13 +132,11 @@ impl<T, I: Interval> TimeSeries<T, I> {
         T: ToString,
     {
         let mut w = csv::Writer::from_path(path)?;
-        let headers =
-            [I::key_columns().as_slice(), &["value"]].concat();
+        let headers = [I::key_columns().as_slice(), &["value"]].concat();
         w.write_record(headers)?;
         for (keys, value) in &self.data {
             let keys: Key<I> = (*keys).into();
-            let mut row: Vec<String> =
-                keys.map(|k| k.to_string()).to_vec();
+            let mut row: Vec<String> = keys.map(|k| k.to_string()).to_vec();
             row.push(value.to_string());
             w.write_record(row)?;
         }
@@ -155,9 +145,7 @@ impl<T, I: Interval> TimeSeries<T, I> {
     }
 }
 
-impl<N: Clone, I: Interval, const U: usize>
-    TimeSeries<Array<N, { U }>, I>
-{
+impl<N: Clone, I: Interval, const U: usize> TimeSeries<Array<N, { U }>, I> {
     /// This takes a time series whose elements are [`Array<N>`]s
     /// and flattens it into a time series of `N`s.
     ///
@@ -170,9 +158,7 @@ impl<N: Clone, I: Interval, const U: usize>
     /// each record represents a year-hour, so instead of one record
     /// per year you now have 24, and thus `n*24` records in total.
     /// These would be indexed by `(u16, u16)`, representing the `(year, hour)`.
-    pub fn flatten<J: Interval<KeySize = Add1<I::KeySize>>>(
-        &self,
-    ) -> TimeSeries<N, J>
+    pub fn flatten<J: Interval<KeySize = Add1<I::KeySize>>>(&self) -> TimeSeries<N, J>
     where
         J::KeySize: ArrayLength,
     {
@@ -182,8 +168,7 @@ impl<N: Clone, I: Interval, const U: usize>
                 arr.iter().enumerate().map(|(i, val)| {
                     let key: Key<I> = (*key).into();
                     let key = [key.as_slice(), &[i as u16]].concat();
-                    let key: J::Key =
-                        key.into_iter().collect_tuple().unwrap();
+                    let key: J::Key = key.into_iter().collect_tuple().unwrap();
                     (key, val.clone())
                 })
             })
@@ -208,8 +193,7 @@ impl<T: Clone, I: Interval> Clone for TimeSeries<T, I> {
         }
     }
 }
-impl<T: std::fmt::Debug, I: Interval> std::fmt::Debug
-    for TimeSeries<T, I>
+impl<T: std::fmt::Debug, I: Interval> std::fmt::Debug for TimeSeries<T, I>
 where
     I::Key: std::fmt::Debug,
 {
@@ -223,16 +207,19 @@ where
         )
     }
 }
-
-impl<T, I: Interval, K: Into<I::Key>> FromIterator<(K, T)>
-    for TimeSeries<T, I>
+impl<T: PartialEq, I: Interval> PartialEq for TimeSeries<T, I>
+where
+    I::Key: PartialEq,
 {
+    fn eq(&self, other: &Self) -> bool {
+        self.iter().zip(other.iter()).all(|(a, b)| a == b)
+    }
+}
+
+impl<T, I: Interval, K: Into<I::Key>> FromIterator<(K, T)> for TimeSeries<T, I> {
     fn from_iter<IT: IntoIterator<Item = (K, T)>>(iter: IT) -> Self {
         Self {
-            data: iter
-                .into_iter()
-                .map(|(k, v)| (k.into(), v))
-                .collect(),
+            data: iter.into_iter().map(|(k, v)| (k.into(), v)).collect(),
             marker: PhantomData,
         }
     }
