@@ -15,6 +15,7 @@ use std::{
     path::Path,
 };
 
+use chrono::{Datelike, Duration, NaiveDateTime, Timelike};
 use generic_array::{functional::FunctionalSequence, ArrayLength, GenericArray};
 use itertools::{traits::HomogeneousTuple, Itertools};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -53,6 +54,7 @@ pub trait Interval {
     type KeySize: ArrayLength + Add<B1>;
     type Key: Into<GenericArray<u16, Self::KeySize>> + Copy + HomogeneousTuple<Item = u16>;
     fn key_columns() -> GenericArray<&'static str, Self::KeySize>;
+    fn as_datetime(key: &Self::Key) -> NaiveDateTime;
 }
 
 type Key<I> = GenericArray<u16, <I as Interval>::KeySize>;
@@ -66,6 +68,11 @@ impl Interval for Annual {
     fn key_columns() -> GenericArray<&'static str, Self::KeySize> {
         ["year"].into()
     }
+
+    fn as_datetime(key: &Self::Key) -> NaiveDateTime {
+        let dt = NaiveDateTime::default();
+        dt.with_year(key.0 as i32).expect("Is a valid year")
+    }
 }
 
 /// An hourly interval for a time series.
@@ -76,6 +83,12 @@ impl Interval for Hourly {
 
     fn key_columns() -> GenericArray<&'static str, Self::KeySize> {
         ["hour"].into()
+    }
+
+    fn as_datetime(key: &Self::Key) -> NaiveDateTime {
+        let epoch = NaiveDateTime::default();
+        let duration = Duration::hours(key.0 as i64);
+        epoch + duration
     }
 }
 
@@ -254,66 +267,13 @@ pub struct FullTimeSeries<N: Numeric, I: Interval> {
     data: BTreeMap<I::Key, N>,
     lerp: Option<Vec<N>>,
 }
-// impl<N: Numeric, I: Interval> TimeSeries<N, I> {
-//     pub fn new(mut series: Vec<(I::Key, N)>) -> Self {
-//         series.sort_by_key(|(key, _)| *key);
-//         todo!()
-//         // self.data.sort()
-//     }
-//
-//     // pub fn min_key(&self) -> Option<&N> {
-//     //     self.data.keys().min()
-//     // }
-//
-//     /// Iterate over *known* values only.
-//     /// As such this is not guaranteed to be contiguous!
-//     pub fn values_known(&self) -> impl Iterator<Item = &N> {
-//         self.data.values()
-//     }
-//
-//     /// Iterate over contiguous values,
-//     /// with unknown values interpolated.
-//     // pub fn values_lerped(&self) -> impl Iterator<Item = &N> {
-//     //     // TODO
-//     //     let vals = [N::default()];
-//     //     vals.iter()
-//     // }
-//
-//     pub fn iter_known(
-//         &self,
-//     ) -> impl Iterator<Item = (&I::Key, &N)> {
-//         self.data.iter()
-//     }
-//
-//     // pub fn iter_lerped(&self) -> impl Iterator<Item = &N> {
-//     //     // TODO
-//     //     [N::default()].iter()
-//     // }
-//
-//     /// The number of known values.
-//     pub fn len(&self) -> usize {
-//         self.data.len()
-//     }
-//
-//     /// Get the minimum known element.
-//     pub fn min(&self) -> N {
-//         self.values_known()
-//             .map(|val| (*val).into())
-//             .fold(f32::INFINITY, |a, b| a.min(b))
-//             .into()
-//     }
-//
-//     /// Get the maximum known element.
-//     pub fn max(&self) -> N {
-//         self.values_known()
-//             .map(|val| (*val).into())
-//             .fold(-f32::INFINITY, |a, b| a.max(b))
-//             .into()
-//     }
-//
-//     /// Get the mean of known values.
-//     pub fn mean(&self) -> N {
-//         self.values_known().copied().sum::<N>()
-//             / self.len() as f32
-//     }
-// }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hourly_interval() {
+        Hourly::as_datetime(&(128u16,));
+    }
+}
