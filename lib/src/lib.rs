@@ -34,7 +34,9 @@ mod tests {
     #[test]
     fn test_derive_partial() {
         use crate::data::{FromPartial, HydrateError};
-        #[derive(Debug, Default, Partial, Clone, serde::Serialize, serde::Deserialize)]
+        #[derive(
+            Debug, Default, Partial, PartialEq, Clone, serde::Serialize, serde::Deserialize,
+        )]
         struct TestInner {
             a: String,
         }
