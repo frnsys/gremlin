@@ -166,6 +166,27 @@ impl<T, I: Interval> TimeSeries<T, I> {
         w.flush()?;
         Ok(())
     }
+
+    /// Sort the series by key.
+    pub fn sort(&mut self) {
+        self.data.sort_by_key(|(key, _)| *key)
+    }
+
+    /// Get the minimum key of the series.
+    pub fn min_key(&self) -> Option<I::Key> {
+        self.data
+            .iter()
+            .min_by_key(|(key, _)| *key)
+            .map(|item| item.0)
+    }
+
+    /// Get the maximum key of the series.
+    pub fn max_key(&self) -> Option<I::Key> {
+        self.data
+            .iter()
+            .max_by_key(|(key, _)| *key)
+            .map(|item| item.0)
+    }
 }
 
 impl<N: Clone, I: Interval, const U: usize> TimeSeries<Array<N, { U }>, I> {
