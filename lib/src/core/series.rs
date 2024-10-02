@@ -11,7 +11,7 @@
 use std::{
     collections::BTreeMap,
     marker::PhantomData,
-    ops::{Add, Deref},
+    ops::{Add, Deref, DerefMut},
     path::Path,
 };
 
@@ -110,6 +110,12 @@ impl<T, I: Interval> Deref for TimeSeries<T, I> {
         &self.data
     }
 }
+impl<T, I: Interval> DerefMut for TimeSeries<T, I> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
 impl<T, I: Interval> Default for TimeSeries<T, I> {
     fn default() -> Self {
         TimeSeries {
