@@ -52,7 +52,11 @@ pub enum Lerp {
 /// using [`TimeSeries::to_csv`].
 pub trait Interval {
     type KeySize: ArrayLength + Add<B1>;
-    type Key: Into<GenericArray<u16, Self::KeySize>> + Copy + HomogeneousTuple<Item = u16>;
+    type Key: Into<GenericArray<u16, Self::KeySize>>
+        + Copy
+        + HomogeneousTuple<Item = u16>
+        + Ord
+        + PartialOrd;
     fn key_columns() -> GenericArray<&'static str, Self::KeySize>;
     fn as_datetime(key: &Self::Key) -> NaiveDateTime;
 }
