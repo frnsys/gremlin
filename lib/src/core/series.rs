@@ -15,7 +15,7 @@ use std::{
     path::Path,
 };
 
-use chrono::{Datelike, Duration, NaiveDateTime, Timelike};
+use chrono::{Datelike, Duration, NaiveDateTime};
 use generic_array::{functional::FunctionalSequence, ArrayLength, GenericArray};
 use itertools::{traits::HomogeneousTuple, Itertools};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};

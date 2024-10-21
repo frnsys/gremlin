@@ -3,20 +3,14 @@
 pub use csv::invalid_option;
 use serde::{
     de::{self, IntoDeserializer, Unexpected},
-    Deserialize,
-    Deserializer,
+    Deserialize, Deserializer,
 };
 
 use crate::core::Unit;
 
 /// Deserialize a list that's a string, e,g, `"A, B, C"`,
 /// into a list of a type, e.g. `[MyEnum::A, MyEnum::B, MyEnum::C]`.
-pub fn deserialize_delimited_list<
-    'de,
-    D,
-    T: Deserialize<'de>,
-    const S: char,
->(
+pub fn deserialize_delimited_list<'de, D, T: Deserialize<'de>, const S: char>(
     deserializer: D,
 ) -> Result<Vec<T>, D::Error>
 where
@@ -35,10 +29,21 @@ where
     Ok(vals)
 }
 
+/// Deserialize an `Option<String>` for which `None` values are encoded as `null`.
+pub fn deserialize_nullable_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let val: String = Deserialize::deserialize(deserializer)?;
+    if &val == "null" {
+        Ok(None)
+    } else {
+        Ok(Some(val))
+    }
+}
+
 /// Deserialize a `usize` for which the value `-999999` indicates a missing or N/A value.
-pub fn deserialize_nullable_usize<'de, D>(
-    deserializer: D,
-) -> Result<Option<usize>, D::Error>
+pub fn deserialize_nullable_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -51,9 +56,7 @@ where
 }
 
 /// Deserialize a `f32` for which the value `-999999` indicates a missing or N/A value.
-pub fn deserialize_nullable_f32<'de, D>(
-    deserializer: D,
-) -> Result<Option<f32>, D::Error>
+pub fn deserialize_nullable_f32<'de, D>(deserializer: D) -> Result<Option<f32>, D::Error>
 where
     D: Deserializer<'de>,
 {
@@ -66,9 +69,7 @@ where
 }
 
 /// Deserialize a nullable [`Unit`] value.
-pub fn deserialize_nullable_unit<'de, D, U: Unit>(
-    deserializer: D,
-) -> Result<Option<U>, D::Error>
+pub fn deserialize_nullable_unit<'de, D, U: Unit>(deserializer: D) -> Result<Option<U>, D::Error>
 where
     D: Deserializer<'de>,
 {

@@ -449,8 +449,8 @@ impl<A: BaseUnit, B: BaseUnit, C: BaseUnit> std::ops::Mul<Product<B, C>>
 // }
 
 /// A/BC * D/A -> D/BC
-impl<A: BaseUnit, B: BaseUnit, C: BaseUnit, D: BaseUnit>
-    std::ops::Mul<Ratio<D, A>> for Ratio<A, Product<B, C>>
+impl<A: BaseUnit, B: BaseUnit, C: BaseUnit, D: BaseUnit> std::ops::Mul<Ratio<D, A>>
+    for Ratio<A, Product<B, C>>
 {
     type Output = Ratio<D, Product<B, C>>;
     fn mul(self, rhs: Ratio<D, A>) -> Self::Output {
@@ -460,9 +460,7 @@ impl<A: BaseUnit, B: BaseUnit, C: BaseUnit, D: BaseUnit>
 
 /// Multiplying two complementary `Ratio`s,
 /// i.e. `A/B * B/C = A/C`.
-impl<U: Unit, U0: Unit, U1: Unit> std::ops::Mul<Ratio<U, U1>>
-    for Ratio<U0, U>
-{
+impl<U: Unit, U0: Unit, U1: Unit> std::ops::Mul<Ratio<U, U1>> for Ratio<U0, U> {
     type Output = Ratio<U0, U1>;
     fn mul(self, rhs: Ratio<U, U1>) -> Self::Output {
         (self.value() * rhs.value()).into()
