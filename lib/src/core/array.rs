@@ -120,7 +120,7 @@ impl<N: Numeric, const U: usize> Array<N, U> {
         Self::new(vals)
     }
 
-    /// Element-wise minimums.
+    /// Element-wise maximums.
     pub fn maxs(&self, other: &Self) -> Self {
         let mut vals = [N::default(); U];
         for i in 0..U {
@@ -133,7 +133,7 @@ impl<N: Numeric, const U: usize> Array<N, U> {
     pub fn clamp(&self, val: N) -> Self {
         let mut vals = [N::default(); U];
         for i in 0..U {
-            vals[i] = self[i].max(&val);
+            vals[i] = self[i].min(&val);
         }
         Self::new(vals)
     }
