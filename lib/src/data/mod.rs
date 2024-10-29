@@ -1,6 +1,7 @@
 //! Data processing helpers.
 
 mod cache;
+mod defmap;
 pub mod geotime;
 mod helpers;
 mod hydrate;
@@ -17,6 +18,7 @@ pub mod impute;
 pub use impute::*;
 
 pub use cache::*;
+pub use defmap::*;
 pub use helpers::*;
 pub use hydrate::*;
 pub use iterator::*;
@@ -24,10 +26,6 @@ pub use partial::*;
 pub use series::*;
 
 pub use time::{
-    self,
-    macros::format_description,
-    serde::format_description as serde_description,
-    Date,
-    OffsetDateTime,
-    PrimitiveDateTime,
+    self, macros::format_description, serde::format_description as serde_description, Date,
+    OffsetDateTime, PrimitiveDateTime,
 };
