@@ -5,7 +5,7 @@ use std::{
     ops::{Deref, DerefMut, Index, IndexMut},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DataMap<K, T>
 where
     T: Clone,
