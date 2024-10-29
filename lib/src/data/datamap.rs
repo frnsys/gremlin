@@ -5,8 +5,10 @@ use std::{
     ops::{Deref, DerefMut, Index, IndexMut},
 };
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct DataMap<K, T>
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DataMap<K: Ord, T>
 where
     T: Clone,
 {
@@ -14,7 +16,7 @@ where
     default: T,
 }
 
-impl<K, T: Clone + Default> Default for DataMap<K, T> {
+impl<K: Ord, T: Clone + Default> Default for DataMap<K, T> {
     fn default() -> Self {
         Self {
             map: BTreeMap::default(),
@@ -23,7 +25,7 @@ impl<K, T: Clone + Default> Default for DataMap<K, T> {
     }
 }
 
-impl<K, T: Clone> DataMap<K, T> {
+impl<K: Ord, T: Clone> DataMap<K, T> {
     pub fn with_default(value: T) -> Self {
         Self {
             map: BTreeMap::default(),
@@ -32,7 +34,7 @@ impl<K, T: Clone> DataMap<K, T> {
     }
 }
 
-impl<K, T: Clone> Deref for DataMap<K, T> {
+impl<K: Ord, T: Clone> Deref for DataMap<K, T> {
     type Target = BTreeMap<K, T>;
 
     fn deref(&self) -> &Self::Target {
@@ -40,7 +42,7 @@ impl<K, T: Clone> Deref for DataMap<K, T> {
     }
 }
 
-impl<K, T: Clone> DerefMut for DataMap<K, T> {
+impl<K: Ord, T: Clone> DerefMut for DataMap<K, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.map
     }
