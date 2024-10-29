@@ -1,7 +1,7 @@
 //! Data processing helpers.
 
 mod cache;
-mod defmap;
+mod datamap;
 pub mod geotime;
 mod helpers;
 mod hydrate;
@@ -18,7 +18,7 @@ pub mod impute;
 pub use impute::*;
 
 pub use cache::*;
-pub use defmap::*;
+pub use datamap::*;
 pub use helpers::*;
 pub use hydrate::*;
 pub use iterator::*;

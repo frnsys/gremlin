@@ -5,7 +5,8 @@ use std::{
     ops::{Deref, DerefMut, Index, IndexMut},
 };
 
-pub struct DefMap<K, T>
+#[derive(Debug, Clone)]
+pub struct DataMap<K, T>
 where
     T: Clone,
 {
@@ -13,7 +14,7 @@ where
     default: T,
 }
 
-impl<K, T: Clone> DefMap<K, T> {
+impl<K, T: Clone> DataMap<K, T> {
     pub fn with_default(value: T) -> Self {
         Self {
             map: BTreeMap::default(),
@@ -22,7 +23,7 @@ impl<K, T: Clone> DefMap<K, T> {
     }
 }
 
-impl<K, T: Clone> Deref for DefMap<K, T> {
+impl<K, T: Clone> Deref for DataMap<K, T> {
     type Target = BTreeMap<K, T>;
 
     fn deref(&self) -> &Self::Target {
@@ -30,20 +31,20 @@ impl<K, T: Clone> Deref for DefMap<K, T> {
     }
 }
 
-impl<K, T: Clone> DerefMut for DefMap<K, T> {
+impl<K, T: Clone> DerefMut for DataMap<K, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.map
     }
 }
 
-impl<K: Ord, T: Clone> Index<&K> for DefMap<K, T> {
+impl<K: Ord, T: Clone> Index<&K> for DataMap<K, T> {
     type Output = T;
 
     fn index(&self, index: &K) -> &Self::Output {
         self.get(index).unwrap_or(&self.default)
     }
 }
-impl<K: Ord, T: Clone> Index<K> for DefMap<K, T> {
+impl<K: Ord, T: Clone> Index<K> for DataMap<K, T> {
     type Output = T;
 
     fn index(&self, index: K) -> &Self::Output {
@@ -51,7 +52,7 @@ impl<K: Ord, T: Clone> Index<K> for DefMap<K, T> {
     }
 }
 
-impl<K: Ord, T: Clone> IndexMut<K> for DefMap<K, T> {
+impl<K: Ord, T: Clone> IndexMut<K> for DataMap<K, T> {
     fn index_mut(&mut self, index: K) -> &mut Self::Output {
         self.map
             .entry(index)
@@ -79,7 +80,7 @@ mod tests {
             Z,
         }
 
-        let mut map = DefMap::with_default(0.0);
+        let mut map = DataMap::with_default(0.0);
         map[MyKey::A] = 1.0;
 
         assert_eq!(map[MyKey::A], 1.0);
