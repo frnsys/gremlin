@@ -14,6 +14,15 @@ where
     default: T,
 }
 
+impl<K, T: Clone + Default> Default for DataMap<K, T> {
+    fn default() -> Self {
+        Self {
+            map: BTreeMap::default(),
+            default: T::default(),
+        }
+    }
+}
+
 impl<K, T: Clone> DataMap<K, T> {
     pub fn with_default(value: T) -> Self {
         Self {
@@ -65,7 +74,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_defmap() {
+    fn test_datamap() {
         #[derive(PartialEq, Eq, PartialOrd, Ord)]
         enum MyKey {
             A,
