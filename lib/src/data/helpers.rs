@@ -85,3 +85,22 @@ where
         ))
     }
 }
+
+/// Deserialize a percentage encoded as a string, e.g. "10%".
+pub fn deserialize_percentage<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let raw: String = Deserialize::deserialize(deserializer)?;
+    let mut parsed = Err(de::Error::invalid_value(
+        Unexpected::Str(&raw),
+        &"number in the form of e.g. '10%'",
+    ));
+
+    if raw.ends_with('%') {
+        if let Ok(val) = raw[..raw.len() - 1].parse::<f32>() {
+            parsed = Ok(val);
+        }
+    }
+    parsed
+}
