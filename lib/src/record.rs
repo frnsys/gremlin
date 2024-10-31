@@ -179,7 +179,7 @@ macro_rules! recordables {
     };
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 struct Record<'a> {
     year: u16,
     facet: String,
@@ -289,11 +289,7 @@ where
 
 /// Collects the recorded data for a singleton (i.e. one datapoint per step)
 /// of this step.
-pub fn update_singleton_recorder<
-    S: Snapshot + SnapshotGet<E>,
-    E,
-    T: RecorderDataType,
->(
+pub fn update_singleton_recorder<S: Snapshot + SnapshotGet<E>, E, T: RecorderDataType>(
     data: &mut RecorderData,
     snapshot: &S,
     mut extract_fn: impl FnMut(&E, &S::Context) -> T,
@@ -323,11 +319,7 @@ pub fn update_singleton_recorder<
 /// one possibility is to have the names be cached
 /// in a static lookup table, thus allowing us to convert
 /// te names' `&str` to `&'static str`.
-pub fn update_entity_recorder<
-    S: Snapshot + SnapshotGet<Vec<C>>,
-    C: Named,
-    T: RecorderDataType,
->(
+pub fn update_entity_recorder<S: Snapshot + SnapshotGet<Vec<C>>, C: Named, T: RecorderDataType>(
     data: &mut RecorderData,
     snapshot: &S,
     mut extract_fn: impl FnMut(&C, &S::Context) -> T,
@@ -351,11 +343,7 @@ pub fn update_entity_recorder<
 /// rather than individually.
 ///
 /// Like the singleton recorder this gives us one datapoint per step.
-pub fn update_group_recorder<
-    S: Snapshot + SnapshotGet<G>,
-    G,
-    T: RecorderDataType,
->(
+pub fn update_group_recorder<S: Snapshot + SnapshotGet<G>, G, T: RecorderDataType>(
     data: &mut RecorderData,
     snapshot: &S,
     mut extract_fn: impl FnMut(&G, &S::Context) -> T,

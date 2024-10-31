@@ -21,8 +21,10 @@ pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> impl Iterator<I
         .unwrap();
     let headers = reader.headers().unwrap().clone();
     let src = path.display().to_string();
+
+    let display = path.display().to_string();
     reader.into_records().map(move |rec| {
-        let rec = rec.unwrap();
+        let rec = rec.with_context(|| display.clone()).unwrap();
         rec.deserialize(Some(&headers))
             .with_context(|| format!("Source: {src}\n{rec:?}"))
             .unwrap()
@@ -228,10 +230,12 @@ pub fn write_flat_csv<T: Serialize + Default, P: AsRef<Path> + std::fmt::Debug>(
     Ok(())
 }
 
-pub fn write_csv<T: Serialize>(path: &Path, items: &[T]) {
+pub fn write_csv<T: Serialize + std::fmt::Debug>(path: &Path, items: &[T]) {
     let mut w = csv::Writer::from_path(path).unwrap();
     for item in items {
-        w.serialize(item).unwrap();
+        w.serialize(item)
+            .with_context(|| format!("{:?}", item))
+            .unwrap();
     }
     w.flush().unwrap();
 }
