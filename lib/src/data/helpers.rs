@@ -91,15 +91,29 @@ pub fn deserialize_percentage<'de, D>(deserializer: D) -> Result<f32, D::Error>
 where
     D: Deserializer<'de>,
 {
+    deserialize_optional_percentage(deserializer).and_then(|inner| match inner {
+        Some(value) => Ok(value),
+        None => Err(de::Error::missing_field("Empty string encountered")),
+    })
+}
+
+/// Deserialize a percentage encoded as a string, e.g. "10%",
+/// and treats an empty string as  `None`.
+pub fn deserialize_optional_percentage<'de, D>(deserializer: D) -> Result<Option<f32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
     let raw: String = Deserialize::deserialize(deserializer)?;
     let mut parsed = Err(de::Error::invalid_value(
         Unexpected::Str(&raw),
         &"number in the form of e.g. '10%'",
     ));
 
-    if raw.ends_with('%') {
+    if raw.is_empty() {
+        parsed = Ok(None)
+    } else if raw.ends_with('%') {
         if let Ok(val) = raw[..raw.len() - 1].parse::<f32>() {
-            parsed = Ok(val);
+            parsed = Ok(Some(val));
         }
     }
     parsed
