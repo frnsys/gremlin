@@ -89,30 +89,7 @@ pub fn impute(mut df: DataFrame, column: &str, strategy: &ImputeStrategy) -> Res
     // For imputing, ensure the column is float.
     df.with_column(df[column].cast(&DataType::Float64)?)?;
     match strategy {
-        ImputeStrategy::All(fill) => {
-            df.with_column(df[column].fill_null((*fill).into())?)?;
-        }
-        ImputeStrategy::Group { column, strategy } => {
-            // First we need to identify which groups
-            // have *no* reference values for the column,
-            // in which case we need to use the overall dataframe
-            // mean/min/max/etc.
-            df = df
-                .lazy()
-                .with_column(
-                    when(col(column).drop_nulls().len().over([col(column)]).eq(0))
-                        .then(match strategy {
-                            FillWith::One => lit(1.),
-                            FillWith::Zero => lit(0.),
-                            FillWith::Min => col(column).min(),
-                            FillWith::Max => col(column).max(),
-                            FillWith::Mean => col(column).mean(),
-                            FillWith::Median => col(column).median(),
-                        })
-                        .otherwise(col(column)),
-                )
-                .collect()?;
-
+        ImputeStrategy::All(strategy) => {
             df = df
                 .lazy()
                 .with_column(
@@ -120,13 +97,44 @@ pub fn impute(mut df: DataFrame, column: &str, strategy: &ImputeStrategy) -> Res
                         .fill_null(match strategy {
                             FillWith::One => lit(1.),
                             FillWith::Zero => lit(0.),
-                            FillWith::Min => col(column).min().over([col(column)]),
-                            FillWith::Max => col(column).max().over([col(column)]),
-                            FillWith::Mean => col(column).mean().over([col(column)]),
-                            FillWith::Median => col(column).median().over([col(column)]),
+                            FillWith::Min => col(column).drop_nulls().min(),
+                            FillWith::Max => col(column).drop_nulls().max(),
+                            FillWith::Mean => col(column).drop_nulls().mean(),
+                            FillWith::Median => col(column).drop_nulls().median(),
                         })
                         .alias(column),
                 )
+                .collect()?;
+        }
+        ImputeStrategy::Group {
+            column: group_col,
+            strategy,
+        } => {
+            df = df
+                .lazy()
+                .with_column(
+                    when(col(column).is_null().all(false).over([col(group_col)]))
+                        // If all values in the group are null, use the global mean
+                        .then(match strategy {
+                            FillWith::One => lit(1.),
+                            FillWith::Zero => lit(0.),
+                            FillWith::Min => col(column).drop_nulls().min(),
+                            FillWith::Max => col(column).drop_nulls().max(),
+                            FillWith::Mean => col(column).drop_nulls().mean(),
+                            FillWith::Median => col(column).drop_nulls().median(),
+                        })
+                        .otherwise(match strategy {
+                            FillWith::One => lit(1.),
+                            FillWith::Zero => lit(0.),
+                            FillWith::Min => col(column).min().over([col(group_col)]),
+                            FillWith::Max => col(column).max().over([col(group_col)]),
+                            FillWith::Mean => col(column).mean().over([col(group_col)]),
+                            FillWith::Median => col(column).median().over([col(group_col)]),
+                        })
+                        .alias("group_mean"),
+                )
+                .with_column(col(column).fill_null(col("group_mean")).alias(column))
+                .drop_columns(["group_mean"])
                 .collect()?;
         }
     }
@@ -137,8 +145,54 @@ pub fn impute(mut df: DataFrame, column: &str, strategy: &ImputeStrategy) -> Res
 mod tests {
     use super::*;
 
+    fn test_impute_all(strat: FillWith, expected: f32) -> Result<()> {
+        let df = CsvReader::from_path("assets/tests/impute.csv")?
+            .has_header(true)
+            .finish()?;
+
+        let imputed = impute(df, "B", &ImputeStrategy::All(strat))?;
+
+        let expected = df! {
+            "A" => ["a", "a", "a", "b", "b", "b", "b", "c", "c"],
+            "B" => [0., 1., expected, 5., expected, 10., 9., expected, expected]
+        }?;
+        assert_eq!(imputed, expected);
+
+        Ok(())
+    }
+
     #[test]
-    fn test_impute() -> Result<()> {
+    fn test_impute_all_mean() -> Result<()> {
+        let expected = (0. + 1. + 5. + 9. + 10.) / 5.;
+        test_impute_all(FillWith::Mean, expected)
+    }
+
+    #[test]
+    fn test_impute_all_median() -> Result<()> {
+        test_impute_all(FillWith::Median, 5.)
+    }
+
+    #[test]
+    fn test_impute_all_min() -> Result<()> {
+        test_impute_all(FillWith::Min, 0.)
+    }
+
+    #[test]
+    fn test_impute_all_max() -> Result<()> {
+        test_impute_all(FillWith::Max, 10.)
+    }
+
+    #[test]
+    fn test_impute_all_zero() -> Result<()> {
+        test_impute_all(FillWith::Zero, 0.)
+    }
+
+    #[test]
+    fn test_impute_all_one() -> Result<()> {
+        test_impute_all(FillWith::One, 1.)
+    }
+
+    fn test_impute_by_group(strat: FillWith, (ex_a, ex_b, ex_c): (f32, f32, f32)) -> Result<()> {
         let df = CsvReader::from_path("assets/tests/impute.csv")?
             .has_header(true)
             .finish()?;
@@ -148,19 +202,52 @@ mod tests {
             "B",
             &ImputeStrategy::Group {
                 column: "A".into(),
-                strategy: FillWith::Mean,
+                strategy: strat,
             },
         )?;
 
-        let expected_a = (0. + 1.) / 2.;
-        let expected_b = (5. + 10.) / 2.;
-        let expected_c = (0. + 1. + 5. + 10.) / 4.;
         let expected = df! {
-            "A" => ["a", "a", "a", "b", "b", "b", "c", "c"],
-            "B" => [0., 1., expected_a, 5., expected_b, 10., expected_c, expected_c]
+            "A" => ["a", "a", "a", "b", "b", "b", "b", "c", "c"],
+            "B" => [0., 1., ex_a, 5., ex_b, 10., 9., ex_c, ex_c]
         }?;
         assert_eq!(imputed, expected);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_impute_group_mean() -> Result<()> {
+        let expected_a = (0. + 1.) / 2.;
+        let expected_b = (5. + 10. + 9.) / 3.;
+        let expected_c = (0. + 1. + 5. + 9. + 10.) / 5.;
+        test_impute_by_group(FillWith::Mean, (expected_a, expected_b, expected_c))
+    }
+
+    #[test]
+    fn test_impute_group_median() -> Result<()> {
+        let expected_a = (0. + 1.) / 2.;
+        let expected_b = 9.;
+        let expected_c = 5.;
+        test_impute_by_group(FillWith::Median, (expected_a, expected_b, expected_c))
+    }
+
+    #[test]
+    fn test_impute_group_min() -> Result<()> {
+        test_impute_by_group(FillWith::Min, (0., 5., 0.))
+    }
+
+    #[test]
+    fn test_impute_group_max() -> Result<()> {
+        test_impute_by_group(FillWith::Max, (1., 10., 10.))
+    }
+
+    #[test]
+    fn test_impute_group_zero() -> Result<()> {
+        test_impute_by_group(FillWith::Zero, (0., 0., 0.))
+    }
+
+    #[test]
+    fn test_impute_group_one() -> Result<()> {
+        test_impute_by_group(FillWith::One, (1., 1., 1.))
     }
 }
