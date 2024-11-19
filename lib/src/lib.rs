@@ -18,6 +18,7 @@ pub mod docs;
 pub mod draw;
 pub mod file;
 pub mod id;
+pub mod probe;
 pub mod record;
 pub mod util;
 
