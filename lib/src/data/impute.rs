@@ -51,6 +51,20 @@ pub enum FillWith {
     /// Fill missing values the column maximum.
     Max,
 }
+impl From<FillWith> for FillNullStrategy {
+    fn from(val: FillWith) -> Self {
+        match val {
+            FillWith::One => FillNullStrategy::One,
+            FillWith::Zero => FillNullStrategy::Zero,
+            FillWith::Mean => FillNullStrategy::Mean,
+            FillWith::Min => FillNullStrategy::Min,
+            FillWith::Max => FillNullStrategy::Max,
+
+            // WARN: There is no "median" equivalent fill null strategy in polars.
+            FillWith::Median => FillNullStrategy::Mean,
+        }
+    }
+}
 
 /// Impute the column `column` using the specified [`ImputeStrategy`].
 ///
