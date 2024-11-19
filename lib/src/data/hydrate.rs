@@ -58,10 +58,7 @@ pub trait Source<T>: Debug
 where
     T: FromPartial,
 {
-    fn generate(
-        &self,
-        start_year: u16,
-    ) -> Result<Vec<T::Partial>, HydrateError>;
+    fn generate(&self, start_year: u16) -> Result<Vec<T::Partial>, HydrateError>;
 }
 
 /// A `Tributary` fills in fields in the population of partial `T`s.
@@ -70,8 +67,5 @@ pub trait Tributary<T>: Debug
 where
     T: FromPartial,
 {
-    fn fill(
-        &self,
-        items: &mut [T::Partial],
-    ) -> Result<(), HydrateError>;
+    fn fill(&self, items: &mut [T::Partial]) -> Result<(), HydrateError>;
 }

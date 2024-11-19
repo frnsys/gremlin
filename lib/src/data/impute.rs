@@ -42,22 +42,14 @@ pub enum FillWith {
     /// Fill missing values the column mean.
     Mean,
 
+    /// Fill missing values the column median.
+    Median,
+
     /// Fill missing values the column minimum.
     Min,
 
     /// Fill missing values the column maximum.
     Max,
-}
-impl From<FillWith> for FillNullStrategy {
-    fn from(val: FillWith) -> Self {
-        match val {
-            FillWith::One => FillNullStrategy::One,
-            FillWith::Zero => FillNullStrategy::Zero,
-            FillWith::Mean => FillNullStrategy::Mean,
-            FillWith::Min => FillNullStrategy::Min,
-            FillWith::Max => FillNullStrategy::Max,
-        }
-    }
 }
 
 /// Impute the column `column` using the specified [`ImputeStrategy`].
@@ -79,18 +71,12 @@ impl From<FillWith> for FillNullStrategy {
 /// values for `x`, so there is nothing to take the mean of. In this case
 /// we instead use the mean of `x` for the entire dataframe (which in this
 /// particular case is equivalent to the mean of the non-missing values of group A).
-pub fn impute(
-    mut df: DataFrame,
-    column: &str,
-    strategy: &ImputeStrategy,
-) -> Result<DataFrame> {
+pub fn impute(mut df: DataFrame, column: &str, strategy: &ImputeStrategy) -> Result<DataFrame> {
     // For imputing, ensure the column is float.
     df.with_column(df[column].cast(&DataType::Float64)?)?;
     match strategy {
         ImputeStrategy::All(fill) => {
-            df.with_column(
-                df[column].fill_null((*fill).into())?,
-            )?;
+            df.with_column(df[column].fill_null((*fill).into())?)?;
         }
         ImputeStrategy::Group { column, strategy } => {
             // First we need to identify which groups
@@ -100,21 +86,16 @@ pub fn impute(
             df = df
                 .lazy()
                 .with_column(
-                    when(
-                        col(column)
-                            .drop_nulls()
-                            .len()
-                            .over([col(column)])
-                            .eq(0),
-                    )
-                    .then(match strategy {
-                        FillWith::One => lit(1.),
-                        FillWith::Zero => lit(0.),
-                        FillWith::Min => col(column).min(),
-                        FillWith::Max => col(column).max(),
-                        FillWith::Mean => col(column).mean(),
-                    })
-                    .otherwise(col(column)),
+                    when(col(column).drop_nulls().len().over([col(column)]).eq(0))
+                        .then(match strategy {
+                            FillWith::One => lit(1.),
+                            FillWith::Zero => lit(0.),
+                            FillWith::Min => col(column).min(),
+                            FillWith::Max => col(column).max(),
+                            FillWith::Mean => col(column).mean(),
+                            FillWith::Median => col(column).median(),
+                        })
+                        .otherwise(col(column)),
                 )
                 .collect()?;
 
@@ -125,15 +106,10 @@ pub fn impute(
                         .fill_null(match strategy {
                             FillWith::One => lit(1.),
                             FillWith::Zero => lit(0.),
-                            FillWith::Min => col(column)
-                                .min()
-                                .over([col(column)]),
-                            FillWith::Max => col(column)
-                                .max()
-                                .over([col(column)]),
-                            FillWith::Mean => col(column)
-                                .mean()
-                                .over([col(column)]),
+                            FillWith::Min => col(column).min().over([col(column)]),
+                            FillWith::Max => col(column).max().over([col(column)]),
+                            FillWith::Mean => col(column).mean().over([col(column)]),
+                            FillWith::Median => col(column).median().over([col(column)]),
                         })
                         .alias(column),
                 )
@@ -149,10 +125,9 @@ mod tests {
 
     #[test]
     fn test_impute() -> Result<()> {
-        let df =
-            CsvReader::from_path("assets/tests/impute.csv")?
-                .has_header(true)
-                .finish()?;
+        let df = CsvReader::from_path("assets/tests/impute.csv")?
+            .has_header(true)
+            .finish()?;
 
         let imputed = impute(
             df,
