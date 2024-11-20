@@ -194,7 +194,6 @@ macro_rules! impl_numeric {
 
 /// A ratio of two units, e.g. meters per second (`m/s`).
 /// We assume the denominator is always 1.
-#[derive(Debug)]
 pub struct Ratio<N: Unit, D: Unit> {
     value: f32,
     marker: PhantomData<(N, D)>,
@@ -203,6 +202,11 @@ impl_numeric!(Ratio<N, D>, N: Unit, D: Unit);
 impl<N: Unit, D: Unit> Display for Ratio<N, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}{}", self.value, Self::abbrev())
+    }
+}
+impl<N: Unit, D: Unit> Debug for Ratio<N, D> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
     }
 }
 impl<N: Unit, D: Unit> Ratio<N, D> {
@@ -228,7 +232,6 @@ impl<N: Unit, D: Unit> Unit for Ratio<N, D> {
 }
 
 /// A product of two units, e.g. watt-hours (`Wh`).
-#[derive(Debug)]
 pub struct Product<N: Unit, M: Unit> {
     value: f32,
     marker: PhantomData<(N, M)>,
@@ -237,6 +240,11 @@ impl_numeric!(Product<N, M>, N: Unit, M: Unit);
 impl<N: Unit, M: Unit> Display for Product<N, M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}{}", self.value, Self::abbrev())
+    }
+}
+impl<N: Unit, M: Unit> Debug for Product<N, M> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
     }
 }
 impl<N: Unit, M: Unit> Product<N, M> {
@@ -794,7 +802,6 @@ impl<U: SIUnit, M: Unit> Product<U, M> {
 /// from a regular `f32`. The purpose is semantics:
 /// It's for when you want to be explicit about
 /// requiring or working with percentages.
-#[derive(Debug)]
 pub struct Percent(f32);
 impl Percent {
     pub fn new(value: f32) -> Self {
@@ -818,6 +825,11 @@ impl std::ops::Mul<Percent> for f32 {
 impl Display for Percent {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}%", self.0 * 100.)
+    }
+}
+impl Debug for Percent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
     }
 }
 impl_numeric!(Percent);

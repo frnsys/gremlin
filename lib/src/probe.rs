@@ -51,7 +51,7 @@ impl<T: std::fmt::Debug + Send + 'static> Probe<T> {
             for probe in probes.iter() {
                 for subject in subjects {
                     if let Some(msg) = probe.sentinel.deref()(subject) {
-                        tracing::info!("[PROBE:{tag}] {msg}\n{subject:?}");
+                        tracing::info!("[PROBE:{tag}] {msg}\n{subject:#?}");
                     }
                 }
             }
