@@ -210,7 +210,7 @@ impl<N: Unit, D: Unit> Debug for Ratio<N, D> {
     }
 }
 impl<N: Unit, D: Unit> Ratio<N, D> {
-    fn new(value: f32) -> Self {
+    pub const fn new(value: f32) -> Self {
         Self {
             value,
             marker: PhantomData,
@@ -248,7 +248,7 @@ impl<N: Unit, M: Unit> Debug for Product<N, M> {
     }
 }
 impl<N: Unit, M: Unit> Product<N, M> {
-    fn new(value: f32) -> Self {
+    pub const fn new(value: f32) -> Self {
         Self {
             value,
             marker: PhantomData,
@@ -580,7 +580,7 @@ macro_rules! define_units {
         $(
             pub struct $name_a(f32);
             impl $name_a {
-                pub fn new(value: f32) -> Self {
+                pub const fn new(value: f32) -> Self {
                     Self(value)
                 }
             }
@@ -632,7 +632,7 @@ macro_rules! define_units {
             impl<P: Prefix> BaseUnit for $name_b<P> {}
 
             impl<P: Prefix> $name_b<P> {
-                fn new(value: f32) -> Self {
+                pub const fn new(value: f32) -> Self {
                     Self {
                         value,
                         marker: std::marker::PhantomData,
@@ -804,7 +804,7 @@ impl<U: SIUnit, M: Unit> Product<U, M> {
 /// requiring or working with percentages.
 pub struct Percent(f32);
 impl Percent {
-    pub fn new(value: f32) -> Self {
+    pub const fn new(value: f32) -> Self {
         Self(value)
     }
 
