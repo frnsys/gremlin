@@ -1,9 +1,39 @@
 //! Some plumbing to help debugging.
 //!
-//! Register sentinel functions that, when triggered,
-//! log a message and the item that triggered it.
-//! Then use the `probe!` macro throughout your code to
-//! run the sentinels.
+//! A probe is associated with a type `T`
+//! and a sentinel function.
+//!
+//! A sentinel function returns `Option<String>`
+//! and essentially functions as a predicate;
+//! returning `Some` when an instance of `T` satisfies
+//! the predicate.
+//!
+//! The probe is inserted throughout your code using
+//! the `probe!` macro, which takes `&[T]`,
+//! and a label for identifying this location in the logs.
+//!
+//! For example:
+//!
+//! ```no_run
+//! struct Subject {
+//!     // ...
+//! }
+//!
+//! // Register a sentinel function.
+//! Probe::register_probe(|subj: &Subject| {
+//!     if subj.value > 100. {
+//!         Some(format!("Item {} had value over 100.", subj.id))
+//!     } else {
+//!         None
+//!     }
+//! })
+//!
+//! // Elsewhere, add the probe.
+//! fn some_function() {
+//!     let subjects: Vec<Subject> = vec![...];
+//!     probe!("Some function", &subjects);
+//! }
+//! ```
 
 use std::{
     any::{Any, TypeId},
