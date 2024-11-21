@@ -7,6 +7,7 @@ mod helpers;
 mod hydrate;
 mod iterator;
 mod partial;
+pub mod profile;
 mod series;
 
 // Behind a feature gate as the
