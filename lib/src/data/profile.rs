@@ -1,12 +1,22 @@
 use ahash::HashMap;
-use comfy_table::{presets::NOTHING, *};
 use ordered_float::NotNan;
+use serde::{Deserialize, Serialize};
 
 use super::Vecf32Ext;
 
+serde_with::with_prefix!(missing "missing.");
+serde_with::with_prefix!(infinite "infinite.");
+serde_with::with_prefix!(negative "negative.");
+serde_with::with_prefix!(zero "zero.");
+serde_with::with_prefix!(duplicate "duplicate.");
+serde_with::with_prefix!(distinct "distinct.");
+serde_with::with_prefix!(outliers "outliers.");
+serde_with::with_prefix!(summary "summary.");
+
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Count {
-    count: usize,
-    percent: f32,
+    pub count: usize,
+    pub percent: f32,
 }
 impl Count {
     pub fn new(count: usize, total: usize) -> Self {
@@ -25,53 +35,75 @@ impl std::fmt::Display for Count {
 }
 
 /// Data profile for a dataset of multiple variables.
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SetProfile {
-    missing: Count,
-    duplicate: Count,
-    n_variables: usize,
-    observations: usize,
-    variables: HashMap<String, VarProfile>,
+    pub missing: Count,
+    pub duplicate: Count,
+    pub n_variables: usize,
+    pub observations: usize,
+    pub variables: HashMap<String, VarProfile>,
 }
 
 /// Data profile for a single variable.
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct VarProfile {
-    missing: Count,
-    infinite: Count,
-    negative: Count,
-    zero: Count,
-    duplicate: Count,
-    distinct: Count,
-    is_constant: bool,
-    summary: Option<Summary>,
+    #[serde(flatten, with = "missing")]
+    pub missing: Count,
+
+    #[serde(flatten, with = "infinite")]
+    pub infinite: Count,
+
+    #[serde(flatten, with = "negative")]
+    pub negative: Count,
+
+    #[serde(flatten, with = "zero")]
+    pub zero: Count,
+
+    #[serde(flatten, with = "duplicate")]
+    pub duplicate: Count,
+
+    #[serde(flatten, with = "distinct")]
+    pub distinct: Count,
+
+    pub is_constant: bool,
+
+    #[serde(flatten, with = "summary")]
+    pub summary: Summary,
 }
-impl VarProfile {
-    pub fn print(&self) {
-        #[rustfmt::skip]
-        let headers = vec![
-            "∅",
-            "∞",
-            "-",
-            "0",
-            "∃!",
-            "¬∃!",
-        ];
 
-        let mut table = Table::new();
-        table
-            .load_preset(NOTHING)
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_header(headers)
-            .add_row(vec![
-                Cell::new(&self.missing),
-                Cell::new(&self.infinite),
-                Cell::new(&self.negative),
-                Cell::new(&self.zero),
-                Cell::new(&self.distinct),
-                Cell::new(&self.duplicate),
-            ]);
-        println!("{table}");
+#[cfg(feature = "console")]
+mod console {
+    //! Stuck behind a feature flag for environments
+    //! that don't have a console; e.g. WASM.
+    use comfy_table::{presets::NOTHING, *};
+    impl super::VarProfile {
+        pub fn print(&self) {
+            #[rustfmt::skip]
+            let headers = vec![
+                "∅",
+                "∞",
+                "-",
+                "0",
+                "∃!",
+                "¬∃!",
+            ];
 
-        if let Some(summary) = &self.summary {
+            let mut table = Table::new();
+            table
+                .load_preset(NOTHING)
+                .set_content_arrangement(ContentArrangement::Dynamic)
+                .set_header(headers)
+                .add_row(vec![
+                    Cell::new(&self.missing),
+                    Cell::new(&self.infinite),
+                    Cell::new(&self.negative),
+                    Cell::new(&self.zero),
+                    Cell::new(&self.distinct),
+                    Cell::new(&self.duplicate),
+                ]);
+            println!("{table}");
+
+            let summary = &self.summary;
             let headers = vec![
                 "min",
                 "max",
@@ -124,24 +156,56 @@ impl VarProfile {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Summary {
-    min: f32,
-    max: f32,
-    mean: f32,
-    median: f32,
-    std_dev: f32,
-    q1: f32,
-    q3: f32,
-    iqr: f32,
-    range: f32,
-    kurtosis: f32,
-    skewness: f32,
-    coef_of_var: f32,
-    mean_abs_dev: f32,
-    outliers: Count,
-    outlier_lower_bound: f32,
-    outlier_upper_bound: f32,
-    histogram: String,
+    pub min: f32,
+    pub max: f32,
+    pub mean: f32,
+    pub median: f32,
+    pub std_dev: f32,
+    pub q1: f32,
+    pub q3: f32,
+    pub iqr: f32,
+    pub range: f32,
+    pub kurtosis: f32,
+    pub skewness: f32,
+    pub coef_of_var: f32,
+    pub mean_abs_dev: f32,
+
+    #[serde(flatten, with = "outliers")]
+    pub outliers: Count,
+
+    pub outlier_lower_bound: f32,
+    pub outlier_upper_bound: f32,
+    pub histogram: String,
+}
+impl Summary {
+    pub fn empty() -> Self {
+        Self {
+            min: f32::NAN,
+            max: f32::NAN,
+            mean: f32::NAN,
+            median: f32::NAN,
+            std_dev: f32::NAN,
+            q1: f32::NAN,
+            q3: f32::NAN,
+            iqr: f32::NAN,
+            range: f32::NAN,
+            kurtosis: f32::NAN,
+            skewness: f32::NAN,
+            coef_of_var: f32::NAN,
+            mean_abs_dev: f32::NAN,
+            outliers: Count::default(),
+            outlier_lower_bound: f32::NAN,
+            outlier_upper_bound: f32::NAN,
+            histogram: String::default(),
+        }
+    }
+}
+impl Default for Summary {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
@@ -181,7 +245,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
     let is_constant = counts.len() == 1;
 
     let summary = if valid.is_empty() {
-        None
+        Summary::empty()
     } else {
         let n_valid = valid.len();
 
@@ -232,7 +296,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
 
         let histogram = histogram(&valid, 16);
 
-        Some(Summary {
+        Summary {
             min,
             max,
             range,
@@ -250,7 +314,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
             kurtosis,
             mean_abs_dev,
             histogram,
-        })
+        }
     };
 
     VarProfile {
@@ -366,7 +430,7 @@ mod tests {
             1000.,
         ];
         let profile = profile(vals.iter().cloned());
-        profile.print();
+        // profile.print();
 
         assert_eq!(profile.infinite.count, 1);
         assert_eq!(profile.missing.count, 1);
