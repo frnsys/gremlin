@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::Context;
 use itertools::multizip;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::{json, Value};
+use serde_yaml::{Number, Value};
 
 pub use path::*;
 use thiserror::Error;
@@ -78,12 +78,12 @@ pub fn read_rows<const N: usize>(
 ///
 /// The way this works is:
 ///
-/// - We first serialize a default copy of the object to a JSON
+/// - We first serialize a default copy of the object to a YAML
 ///     object so we learn the flattened column names and types.
 ///     This is why `T` must implement both `Serialize` and `Default`.
 /// - We read the CSV and check that the columns look correct.
 /// - Then we parse each CSV record according to what we learned
-///     from the JSON-serialized example.
+///     from the YAML-serialized example.
 ///
 /// For this to work you must flatten fields that are structs and
 /// define a prefix:
@@ -96,6 +96,8 @@ pub fn read_rows<const N: usize>(
 ///     nested: Nested,
 /// }
 /// ```
+///
+/// Note that YAML is preferred over JSON because it supports NaN and infinity values.
 pub fn read_flat_csv<
     T: Serialize + DeserializeOwned + Default,
     P: AsRef<Path> + std::fmt::Debug,
@@ -104,8 +106,10 @@ pub fn read_flat_csv<
 ) -> Result<Vec<T>, CsvError> {
     tracing::debug!("Deserializing CSV: {:#?}", path);
     let path = path.as_ref();
-    let reader = csv::Reader::from_path(path)
-        .map_err(|_err| CsvError::FailedToOpenFile(path.to_path_buf()))?;
+    let reader = csv::Reader::from_path(path).map_err(|err| {
+        tracing::error!("{:?}", err);
+        CsvError::FailedToOpenFile(path.to_path_buf())
+    })?;
 
     let source = path.display().to_string();
     _read_flat_csv(source, reader)
@@ -123,11 +127,14 @@ fn _read_flat_csv<R: std::io::Read, T: Serialize + DeserializeOwned + Default>(
     mut reader: csv::Reader<R>,
 ) -> Result<Vec<T>, CsvError> {
     let ref_val = T::default();
-    let json_val = serde_json::to_value(&ref_val)?;
-    let json_obj = json_val
-        .as_object()
+    let yaml_val = serde_yaml::to_value(&ref_val)?;
+    let yaml_obj = yaml_val
+        .as_mapping()
         .expect("We gave an object so we get one back");
-    let ref_cols: Vec<&String> = json_obj.keys().collect();
+    let ref_cols: Vec<String> = yaml_obj
+        .keys()
+        .map(|val| val.as_str().expect("All keys are strings").to_string())
+        .collect();
 
     let cols: Vec<String> = reader
         .headers()
@@ -148,38 +155,49 @@ fn _read_flat_csv<R: std::io::Read, T: Serialize + DeserializeOwned + Default>(
 
     let idxs: Vec<usize> = ref_cols
         .iter()
-        .filter_map(|col| cols.iter().position(|c| c == *col))
+        .filter_map(|col| cols.iter().position(|c| c == col))
         .collect();
 
     let mut data = vec![];
     for rec in reader.records() {
         let rec = rec.map_err(|_err| CsvError::FailedToReadRecord)?;
-        let mut map = serde_json::Map::new();
-        for (idx, typ) in multizip((idxs.iter(), json_obj.values())) {
+        let mut map = serde_yaml::Mapping::new();
+        for (idx, typ) in multizip((idxs.iter(), yaml_obj.values())) {
             let val = &rec[*idx];
             let col = &cols[*idx];
+            let key = Value::String(col.to_string());
             match typ {
                 Value::Bool(_) => {
-                    map.insert(col.to_string(), json!(val.parse::<bool>()?));
+                    map.insert(key, Value::from(val.parse::<bool>()?));
                 }
                 Value::Number(num) => {
                     if num.is_f64() {
-                        map.insert(col.to_string(), json!(val.parse::<f32>()?));
+                        map.insert(
+                            key,
+                            if val == ".nan" {
+                                // How yaml encodes nans
+                                Value::Number(Number::from(f32::NAN))
+                            } else {
+                                Value::from(val.parse::<f32>().inspect_err(|err| {
+                                    tracing::error!("Failed to parse float: {val}");
+                                })?)
+                            },
+                        );
                     } else if num.is_i64() {
-                        map.insert(col.to_string(), json!(val.parse::<i32>()?));
+                        map.insert(key, Value::Number(Number::from(val.parse::<i32>()?)));
                     } else if num.is_u64() {
-                        map.insert(col.to_string(), json!(val.parse::<u32>()?));
+                        map.insert(key, Value::Number(Number::from(val.parse::<u32>()?)));
                     }
                 }
                 Value::String(_) => {
-                    map.insert(col.to_string(), json!(val));
+                    map.insert(key, Value::String(val.into()));
                 }
                 _ => {
                     return Err(CsvError::UnhandledType(col.clone(), typ.clone()));
                 }
             }
         }
-        let obj: T = serde_json::from_value(Value::Object(map))?;
+        let obj: T = serde_yaml::from_value(Value::Mapping(map))?;
         data.push(obj);
     }
     Ok(data)
@@ -196,17 +214,20 @@ pub fn write_flat_csv<T: Serialize + Default, P: AsRef<Path> + std::fmt::Debug>(
         .map_err(|_err| CsvError::FailedToOpenFile(path.as_ref().to_path_buf()))?;
 
     let ref_val = T::default();
-    let json_val = serde_json::to_value(&ref_val)?;
-    let json_obj = json_val
-        .as_object()
+    let yaml_val = serde_yaml::to_value(&ref_val)?;
+    let yaml_obj = yaml_val
+        .as_mapping()
         .expect("We gave an object so we get one back");
-    let ref_cols: Vec<&String> = json_obj.keys().collect();
+    let ref_cols: Vec<String> = yaml_obj
+        .keys()
+        .map(|val| val.as_str().expect("All keys are strings").to_string())
+        .collect();
     w.write_record(ref_cols)?;
 
     for item in items {
-        let json_val = serde_json::to_value(item)?;
-        let obj = json_val
-            .as_object()
+        let yaml_val = serde_yaml::to_value(item)?;
+        let obj = yaml_val
+            .as_mapping()
             .expect("We gave an object so we get one back");
         let vals: Vec<String> = obj
             .values()
@@ -216,7 +237,10 @@ pub fn write_flat_csv<T: Serialize + Default, P: AsRef<Path> + std::fmt::Debug>(
                 // `"\"hello\""`, which then cause redandant
                 // quotes to be added when writing to a CSV.
                 // So to avoid that we strip the quotes if present.
-                let string = v.to_string();
+                let string = serde_yaml::to_string(v)
+                    .expect("Is primitive and should serialize")
+                    .trim()
+                    .to_string();
                 if string.starts_with('"') && string.ends_with('"') {
                     string[1..string.len() - 1].to_string()
                 } else {
@@ -276,7 +300,7 @@ pub enum CsvError {
     FailedToReadHeaders,
 
     #[error("Failed to de/serialize to the target type.")]
-    FailedToDeSerialize(#[from] serde_json::Error),
+    FailedToDeSerialize(#[from] serde_yaml::Error),
 
     #[error("Failed to parse the string into a boolean: {0}.")]
     FailedToParseBool(#[from] std::str::ParseBoolError),
@@ -292,4 +316,86 @@ pub enum CsvError {
 
     #[error("Other CSV error: {0}")]
     Other(#[from] csv::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    use super::*;
+
+    serde_with::with_prefix!(inner "inner.");
+
+    #[test]
+    fn test_flat_csv_roundtrip() {
+        #[derive(Debug, Default, Serialize, Deserialize)]
+        struct Inner {
+            x: f32,
+            y: String,
+            z: usize,
+            w: bool,
+        }
+        impl PartialEq for Inner {
+            fn eq(&self, other: &Self) -> bool {
+                // NOTE: NaNs normally not considered equal.
+                (self.x == other.x || self.x.is_nan() && other.x.is_nan())
+                    && self.y == other.y
+                    && self.z == other.z
+                    && self.w == other.w
+            }
+        }
+
+        #[derive(Debug, Default, Serialize, Deserialize)]
+        struct Outer {
+            a: f32,
+            b: String,
+            c: usize,
+            d: bool,
+
+            #[serde(flatten, with = "inner")]
+            inner: Inner,
+        }
+        impl PartialEq for Outer {
+            fn eq(&self, other: &Self) -> bool {
+                // NOTE: NaNs normally not considered equal.
+                (self.a == other.a || self.a.is_nan() && other.a.is_nan())
+                    && self.b == other.b
+                    && self.c == other.c
+                    && self.d == other.d
+                    && self.inner == other.inner
+            }
+        }
+
+        let items = vec![
+            Outer {
+                a: 12.,
+                b: "First".to_string(),
+                c: 25,
+                d: true,
+                inner: Inner {
+                    x: f32::NAN,
+                    y: "First-Inner".to_string(),
+                    z: 48,
+                    w: true,
+                },
+            },
+            Outer {
+                a: f32::NAN,
+                b: "Second".to_string(),
+                c: 6,
+                d: false,
+                inner: Inner {
+                    x: 19.,
+                    y: "Second-Inner".to_string(),
+                    z: 7,
+                    w: true,
+                },
+            },
+        ];
+
+        write_flat_csv("/tmp/flat_csv_test.csv", &items).unwrap();
+
+        let items_read: Vec<Outer> = read_flat_csv("/tmp/flat_csv_test.csv").unwrap();
+        assert_eq!(items, items_read);
+    }
 }
