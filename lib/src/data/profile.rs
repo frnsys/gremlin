@@ -111,6 +111,8 @@ mod console {
                 "mean",
                 "median",
                 "std",
+                "p5",
+                "p95",
                 "q1",
                 "q3",
                 "iqr",
@@ -135,6 +137,8 @@ mod console {
                     Cell::new(summary.mean),
                     Cell::new(summary.median),
                     Cell::new(summary.std_dev),
+                    Cell::new(summary.p5),
+                    Cell::new(summary.p95),
                     Cell::new(summary.q1),
                     Cell::new(summary.q3),
                     Cell::new(summary.iqr),
@@ -163,6 +167,8 @@ pub struct Summary {
     pub mean: f32,
     pub median: f32,
     pub std_dev: f32,
+    pub p5: f32,
+    pub p95: f32,
     pub q1: f32,
     pub q3: f32,
     pub iqr: f32,
@@ -187,6 +193,8 @@ impl Summary {
             mean: f32::NAN,
             median: f32::NAN,
             std_dev: f32::NAN,
+            p5: f32::NAN,
+            p95: f32::NAN,
             q1: f32::NAN,
             q3: f32::NAN,
             iqr: f32::NAN,
@@ -265,6 +273,9 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
         let outlier_lower_bound = q1 - 1.5 * iqr;
         let outlier_upper_bound = q3 + 1.5 * iqr;
 
+        let p5 = calculate_percentile(&valid, 5.);
+        let p95 = calculate_percentile(&valid, 95.);
+
         let non_outlier: Vec<f32> = valid
             .into_iter()
             .filter(move |val| *val >= outlier_lower_bound && *val <= outlier_upper_bound)
@@ -302,6 +313,8 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
             range,
             mean,
             median,
+            p5,
+            p95,
             q1,
             q3,
             iqr,
