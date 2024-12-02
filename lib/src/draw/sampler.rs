@@ -83,13 +83,16 @@ impl Constraint {
     }
 
     pub fn transform(&self, value: f64) -> Result<f64, SamplerError> {
+        const EPSILON: f64 = 1e-10;
         let transformed = match self {
             Self::LowerBound(c) => log_lb(value, *c as f64),
-            Self::LowerBoundInclusive(c) => log_lb(value, *c as f64),
+            Self::LowerBoundInclusive(c) => log_lb(value, *c as f64 - EPSILON),
             Self::UpperBound(c) => log_ub(value, *c as f64),
-            Self::UpperBoundInclusive(c) => log_ub(value, *c as f64),
+            Self::UpperBoundInclusive(c) => log_ub(value, *c as f64 + EPSILON),
             Self::Range(l, h) => logit_gen(value, *l as f64, *h as f64),
-            Self::RangeInclusive(l, h) => logit_gen(value, *l as f64, *h as f64),
+            Self::RangeInclusive(l, h) => {
+                logit_gen(value, *l as f64 - EPSILON, *h as f64 + EPSILON)
+            }
         };
         if transformed.is_nan() {
             Err(SamplerError::OutOfRange(self.clone(), value))

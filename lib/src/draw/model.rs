@@ -106,7 +106,7 @@ impl PmlModel {
                     val.and_then(|val| {
                         constraint
                             .transform(val)
-                            .inspect_err(|err| tracing::error!("{}", err))
+                            .inspect_err(|err| tracing::error!("{name}: {}", err))
                             .ok()
                     })
                 });
@@ -303,11 +303,10 @@ macro_rules! constraint {
         $crate::draw::Constraint::UpperBoundInclusive($val)
     };
     ($val_a: expr => $val_b: expr) => {
-        $crate::draw::Constraint::Range($val_a, $val_b)
-    };
-    ($val_a: expr => $val_b: expr) => {
         $crate::draw::Constraint::RangeInclusive($val_a, $val_b)
-    };
+    }; // ($val_a: expr => $val_b: expr) => {
+       //     $crate::draw::Constraint::Range($val_a, $val_b)
+       // };
 }
 
 /// Draw samples for each group and plot their properties.
