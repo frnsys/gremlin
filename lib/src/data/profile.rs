@@ -184,6 +184,7 @@ pub struct Summary {
     pub outlier_lower_bound: f32,
     pub outlier_upper_bound: f32,
     pub histogram: String,
+    pub sample_size: usize,
 }
 impl Summary {
     pub fn empty() -> Self {
@@ -207,6 +208,7 @@ impl Summary {
             outlier_lower_bound: f32::NAN,
             outlier_upper_bound: f32::NAN,
             histogram: String::default(),
+            sample_size: 0,
         }
     }
 }
@@ -275,6 +277,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
 
         let p5 = calculate_percentile(&valid, 5.);
         let p95 = calculate_percentile(&valid, 95.);
+        let sample_size = valid.len();
 
         let non_outlier: Vec<f32> = valid
             .into_iter()
@@ -327,6 +330,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
             kurtosis,
             mean_abs_dev,
             histogram,
+            sample_size,
         }
     };
 

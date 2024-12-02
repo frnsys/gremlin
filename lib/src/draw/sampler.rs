@@ -163,8 +163,12 @@ impl<T: Sampleable> Sampler<T> {
     }
 
     /// Sample across all columns using the given values.
-    pub fn sample(&self, n_samples: usize, given: &T::Given) -> Result<Vec<T>, SamplerError> {
-        let in_data = given.to_data();
+    pub fn sample(
+        &self,
+        n_samples: usize,
+        given: Option<&T::Given>,
+    ) -> Result<Vec<T>, SamplerError> {
+        let in_data = given.map_or(vec![], |given| given.to_data());
         let given_cols: Vec<_> = in_data.iter().map(|g| g.0).collect();
         let columns: Vec<_> = self
             .columns
@@ -294,14 +298,20 @@ impl<T: Sampleable> Sampler<T> {
 /// Implement this so a type can be sampled using a [`Sampler`].
 pub trait Sampleable: Sized {
     type Given: Given;
-    fn from_data(given: &Self::Given, data: HashMap<&str, f32>) -> Result<Self, SamplerError>;
+    fn from_data(
+        given: Option<&Self::Given>,
+        data: HashMap<&str, f32>,
+    ) -> Result<Self, SamplerError>;
 }
 
 /// Dummy implementation for samplers that
 /// just need to return column data.
 impl Sampleable for () {
     type Given = ();
-    fn from_data(_given: &Self::Given, _data: HashMap<&str, f32>) -> Result<Self, SamplerError> {
+    fn from_data(
+        _given: Option<&Self::Given>,
+        _data: HashMap<&str, f32>,
+    ) -> Result<Self, SamplerError> {
         Ok(())
     }
 }
@@ -371,7 +381,7 @@ macro_rules! sampleable {
         impl Sampleable for $t {
             type Given = $given;
 
-            fn from_data(given: &Self::Given, data: HashMap<&str, f32>) -> Result<Self, SamplerError> {
+            fn from_data(given: Option<&Self::Given>, data: HashMap<&str, f32>) -> Result<Self, SamplerError> {
                 macro_rules! get {
                     ( $k:literal ) => {
                         *data.get($k).ok_or_else(|| SamplerError::MissingColumn($k.to_string()))?
