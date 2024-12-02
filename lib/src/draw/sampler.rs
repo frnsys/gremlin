@@ -176,8 +176,8 @@ impl<T: Sampleable> Sampler<T> {
             .map(|c| c.name.as_str())
             .filter(|name| !given_cols.contains(name))
             .collect();
-        let samples = self
-            .sample_columns(n_samples, &in_data, &columns)?
+        let samples = self.sample_columns(n_samples, &in_data, &columns)?;
+        let samples = samples
             .into_iter()
             .map(|data| T::from_data(given, data))
             .collect::<Result<_, _>>()?;
@@ -363,7 +363,7 @@ impl AsDatum for Date {
 /// Shortcut for implementing the [`Sampler`] trait for a type.
 #[macro_export]
 macro_rules! sampleable {
-    ( $given:ident { $($g_field:ident: $g_type:ty => $g_key:literal),* $(,)? }, $t:ident { $($field:ident => $key:literal),* $(,)? }, $finish:expr) => {
+    ( $given:ident { $($g_field:ident: $g_type:ty => $g_key:literal),* $(,)? }, $t:ident { $($field:ident$(.$prop:ident)* => $key:literal),* $(,)? }, $finish:expr) => {
         use $crate::draw::{lace, Sampleable, SamplerError, Given};
 
         pub struct $given {
@@ -387,10 +387,11 @@ macro_rules! sampleable {
                         *data.get($k).ok_or_else(|| SamplerError::MissingColumn($k.to_string()))?
                     };
                 }
-                let mut item = $t {
-                    $($field: get!($key).into(),)*
-                    ..Default::default()
-                };
+                let mut item: $t = Default::default();
+                $(
+                    item.$field$(.$prop)* = get!($key).into();
+                )*
+
                 $finish(&mut item, given, data);
                 Ok(item)
             }
