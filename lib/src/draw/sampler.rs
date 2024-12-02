@@ -17,6 +17,7 @@
 
 use std::{marker::PhantomData, path::Path};
 
+use super::transform::*;
 use ahash::{HashMap, HashSet};
 pub use lace::{self, Datum};
 use lace::{metadata::Error as LaceError, Category, Engine, Oracle, OracleT};
@@ -54,6 +55,9 @@ pub enum SamplerError {
 
     #[error("Missing expected column: {0}")]
     MissingColumn(String),
+
+    #[error("Provided value is out of expected range: {0:?}: {1}")]
+    OutOfRange(Constraint, f64),
 }
 
 /// A constraint on a sampled variables values.
@@ -75,6 +79,33 @@ impl Constraint {
             Self::UpperBoundInclusive(c) => value <= *c,
             Self::Range(l, h) => value > *l && value < *h,
             Self::RangeInclusive(l, h) => value >= *l && value <= *h,
+        }
+    }
+
+    pub fn transform(&self, value: f64) -> Result<f64, SamplerError> {
+        let transformed = match self {
+            Self::LowerBound(c) => log_lb(value, *c as f64),
+            Self::LowerBoundInclusive(c) => log_lb(value, *c as f64),
+            Self::UpperBound(c) => log_ub(value, *c as f64),
+            Self::UpperBoundInclusive(c) => log_ub(value, *c as f64),
+            Self::Range(l, h) => logit_gen(value, *l as f64, *h as f64),
+            Self::RangeInclusive(l, h) => logit_gen(value, *l as f64, *h as f64),
+        };
+        if transformed.is_nan() {
+            Err(SamplerError::OutOfRange(self.clone(), value))
+        } else {
+            Ok(transformed)
+        }
+    }
+
+    pub fn inv_transform(&self, value: f64) -> f64 {
+        match self {
+            Self::LowerBound(c) => inv_log_lb(value, *c as f64),
+            Self::LowerBoundInclusive(c) => inv_log_lb(value, *c as f64),
+            Self::UpperBound(c) => inv_log_ub(value, *c as f64),
+            Self::UpperBoundInclusive(c) => inv_log_ub(value, *c as f64),
+            Self::Range(l, h) => inv_logit_gen(value, *l as f64, *h as f64),
+            Self::RangeInclusive(l, h) => inv_logit_gen(value, *l as f64, *h as f64),
         }
     }
 }
@@ -263,9 +294,9 @@ impl<T: Sampleable> Sampler<T> {
         // for categorical data.
         let val = val
             .to_f64_opt()
-            .ok_or_else(|| SamplerError::IncorrectColumnType(col.to_string()))?
-            as f32;
+            .ok_or_else(|| SamplerError::IncorrectColumnType(col.to_string()))?;
         if let Some(constraint) = self.constraints.get(col) {
+            let val = constraint.inv_transform(val) as f32;
             let ok = constraint.is_valid(val);
             if ok {
                 Ok((Some(val), false))
@@ -290,7 +321,7 @@ impl<T: Sampleable> Sampler<T> {
                 Ok((None, true))
             }
         } else {
-            Ok((Some(val), false))
+            Ok((Some(val as f32), false))
         }
     }
 }

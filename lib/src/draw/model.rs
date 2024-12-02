@@ -100,6 +100,17 @@ impl PmlModel {
                     );
                 }
             }
+
+            if let Some(constraint) = column.constraint {
+                df[name].f64()?.apply(|val| {
+                    val.and_then(|val| {
+                        constraint
+                            .transform(val)
+                            .inspect_err(|err| tracing::error!("{}", err))
+                            .ok()
+                    })
+                });
+            }
         }
 
         Ok(PmlModel {
