@@ -17,6 +17,7 @@ pub mod data;
 pub mod docs;
 pub mod draw;
 pub mod file;
+
 pub mod id;
 pub mod probe;
 pub mod record;
@@ -24,6 +25,9 @@ pub mod util;
 
 #[cfg(feature = "plotting")]
 pub mod plot;
+
+#[cfg(feature = "forest")]
+pub mod forest;
 
 pub use gremlin_macros::*;
 pub use paste;
