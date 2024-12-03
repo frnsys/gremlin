@@ -24,31 +24,45 @@ pub enum ForestError {
 
     #[error("Wrong input shape: {0}")]
     WrongShape(#[from] ndarray::ShapeError),
+
+    #[error("No records for target: {0}")]
+    EmptyData(String),
 }
 
-fn build_features(df: &DataFrame, columns: &[String]) -> Result<Array2<f64>, ForestError> {
-    let cols: Vec<_> = columns.iter().map(|name| col(name)).collect();
-    let df = df.clone().lazy().select(cols).collect()?;
-    let data: Vec<f64> = df
+fn build_data(
+    df: &DataFrame,
+    columns: &[String],
+    target: &str,
+) -> Result<(Array2<f64>, Array1<f64>), ForestError> {
+    let feat_cols: Vec<_> = columns.iter().map(|name| col(name)).collect();
+
+    let mut all_cols = feat_cols.clone();
+    all_cols.push(col(target));
+    let df = df
+        .clone()
+        .lazy()
+        .select(all_cols)
+        .drop_nulls(None)
+        .collect()?;
+
+    let feat_df = df.clone().lazy().select(feat_cols).collect()?;
+    let data: Vec<f64> = feat_df
         .get_columns()
         .iter()
         .flat_map(|series| series.f64().unwrap().into_iter().map(|x| x.unwrap()))
         .collect();
-    let shape = (df.height(), df.width());
-    let arr = Array2::from_shape_vec(shape, data).expect("Shape is correct");
-    Ok(arr)
-}
+    let shape = (feat_df.height(), feat_df.width());
+    let feat_arr = Array2::from_shape_vec(shape, data).expect("Shape is correct");
 
-fn build_target(df: &DataFrame, column: &str) -> Result<Array1<f64>, ForestError> {
-    let df = df.clone().lazy().select([col(column)]).collect()?;
-
-    let data: Vec<f64> = df
+    let target_df = df.clone().lazy().select([col(target)]).collect()?;
+    let data: Vec<f64> = target_df
         .get_columns()
         .iter()
         .flat_map(|series| series.f64().unwrap().into_iter().map(|x| x.unwrap()))
         .collect();
 
-    Ok(Array1::from(data))
+    let target_arr = Array1::from(data);
+    Ok((feat_arr, target_arr))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,13 +75,23 @@ impl Forest {
         df: DataFrame,
         feature_cols: &[String],
         target_cols: &[String],
+        skip_missing: bool,
     ) -> Result<Self, ForestError> {
         let mut models = HashMap::default();
         let n_features = feature_cols.len();
 
-        let features_arr = build_features(&df, feature_cols)?;
         for col in target_cols {
-            let target_arr = build_target(&df, col)?;
+            let (features_arr, target_arr) = build_data(&df, feature_cols, col)?;
+            if features_arr.is_empty() {
+                if skip_missing {
+                    tracing::warn!("No records for {col:?}, skipping.");
+                    continue;
+                } else {
+                    return Err(ForestError::EmptyData(col.to_string()));
+                }
+            } else {
+                tracing::info!("{} records for {col:?}.", target_arr.len());
+            }
 
             // let (x_train, x_test, y_train, y_test) = smartcore::model_selection::train_test_split(
             //     &features_arr,
