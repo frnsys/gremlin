@@ -47,7 +47,7 @@ resvg = { version = "0.40.0", default-features = false, features = ["png", "syst
 ordered-float = "4.5.0"
 serde_with = "3.11.0"
 comfy-table = { version = "7.1.3", optional = true }
-iocraft = { version = "0.4.0", path = "/home/francis/downloads/iocraft/packages/iocraft" }
+iocraft = { version = "0.4.0", git = "https://github.com/frnsys/iocraft" }
 
 [lib]
 doctest = false
