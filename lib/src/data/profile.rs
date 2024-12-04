@@ -23,14 +23,22 @@ impl Count {
         let percent = count as f32 / total as f32;
         Self { count, percent }
     }
+
+    pub fn all(&self) -> bool {
+        self.percent >= 1.
+    }
+
+    pub fn display_percent(&self) -> String {
+        if self.percent < 0.01 {
+            "<1%".to_string()
+        } else {
+            format!("{:.1}%", self.percent * 100.)
+        }
+    }
 }
 impl std::fmt::Display for Count {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.percent < 0.01 {
-            write!(f, "{} (<1%)", self.count)
-        } else {
-            write!(f, "{} ({:.1}%)", self.count, self.percent * 100.)
-        }
+        write!(f, "{} ({})", self.count, self.display_percent())
     }
 }
 
@@ -308,7 +316,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
             - 3.0; // Subtract 3 for excess kurtosis
         let mean_abs_dev = valid.iter().map(|val| (val - mean).abs()).sum::<f32>() / n_valid as f32;
 
-        let histogram = histogram(&valid, 16);
+        let histogram = histogram(&valid, 6);
 
         Summary {
             min,
@@ -384,7 +392,7 @@ fn relative_variance(data: &[f32], mean: f32, median: f32) -> Option<f32> {
 }
 
 fn histogram(values: &[f32], bins: usize) -> String {
-    const SYMBOLS: [char; 9] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    const SYMBOLS: [char; 8] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
 
     let mut s = String::new();
     if !values.is_empty() {
@@ -393,7 +401,7 @@ fn histogram(values: &[f32], bins: usize) -> String {
         let max = counts.iter().max().expect("Checked for values");
         for count in &counts {
             let p = *count as f32 / *max as f32;
-            let p = (p * 8.).round() as usize;
+            let p = (p * 7.).round() as usize;
             let sym = SYMBOLS[p];
             s.push(sym);
         }

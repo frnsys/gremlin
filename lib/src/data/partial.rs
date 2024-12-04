@@ -1,7 +1,6 @@
 //! Trait for incrementally filling ("hydrating") structs with data.
 
-use anyhow::Error as AnyhowError;
-use thiserror::Error;
+use super::river::HydrateError;
 
 /// This trait indicates an associated struct, `Partial`,
 /// which is the same as this struct except that
@@ -21,16 +20,4 @@ pub trait FromPartial: Sized + Default {
     /// Create this struct from a default instance,
     /// and applying the partial.
     fn from_default(partial: Self::Partial) -> Self;
-}
-
-#[derive(Debug, Error)]
-pub enum HydrateError {
-    #[error("The following fields for {0} were empty: {1:?}.\n  You may need to add a tributary to fill the field(s).")]
-    EmptyFields(&'static str, Vec<&'static str>),
-
-    #[error("The following field for {0} is required to fill other fields: {1}")]
-    MissingExpectedField(&'static str, &'static str),
-
-    #[error(transparent)]
-    Other(#[from] AnyhowError),
 }
