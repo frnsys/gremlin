@@ -1,7 +1,8 @@
 use anyhow::Error as AnyhowError;
+use fs_err::File;
 use iocraft::prelude::*;
 use itertools::Itertools;
-use std::{boxed::Box as RBox, collections::BTreeMap, fmt::Debug};
+use std::{boxed::Box as RBox, collections::BTreeMap, fmt::Debug, io::Write, path::Path};
 use thiserror::Error;
 
 use crate::{core::Unit, data::profile::Count};
@@ -45,6 +46,9 @@ macro_rules! non_dataset {
             fn rows(&self) -> impl Iterator<Item = &Self::Row> {
                 std::iter::empty()
             }
+            fn inspect(&self) -> String {
+                String::new()
+            }
         }
     };
 }
@@ -67,7 +71,7 @@ pub trait Dataset {
     }
 
     /// Print table describing the rows in this dataset.
-    fn inspect(&self) {
+    fn inspect(&self) -> String {
         let mut col_values: BTreeMap<String, Vec<f32>> = BTreeMap::default();
         let cols = Self::Row::columns();
         let rows: Vec<_> = self.rows().collect();
@@ -92,7 +96,7 @@ pub trait Dataset {
             .split("::")
             .last()
             .unwrap();
-        element!(VarTable(name, total, refs, vars: profiles)).print();
+        element!(VarTable(name, total, refs, vars: profiles)).to_string()
     }
 }
 
@@ -106,10 +110,10 @@ impl<R: Row> Dataset for Vec<R> {
 
 /// Erase the associated `Row` type in the `Dataset` trait.
 trait DatasetErased {
-    fn inspect(&self);
+    fn inspect(&self) -> String;
 }
 impl<R: Row, T: Dataset<Row = R>> DatasetErased for T {
-    fn inspect(&self) {
+    fn inspect(&self) -> String {
         Dataset::inspect(self)
     }
 }
@@ -176,25 +180,19 @@ impl<T: FromPartial + Constrained + Row> River<T>
 where
     T::Partial: Row,
 {
-    pub fn run(&self, verbose: bool) -> Result<Vec<T>, HydrateError> {
+    pub fn run(&self, log_path: Option<&Path>) -> Result<Vec<T>, HydrateError> {
+        let mut buffer = Vec::new();
+
         // Generate initial items.
-        if verbose {
-            self.source.inspect();
-        }
+        writeln!(buffer, "{}", self.source.inspect());
         let mut items = self.source.generate()?;
-        if verbose {
-            Dataset::inspect(&items);
-        }
+        writeln!(buffer, "{}", Dataset::inspect(&items));
 
         // Fill in (hydrate) items.
         for tributary in &self.tributaries {
-            if verbose {
-                self.source.inspect();
-            }
+            writeln!(buffer, "{}", tributary.inspect());
             tributary.fill(&mut items)?;
-            if verbose {
-                Dataset::inspect(&items);
-            }
+            writeln!(buffer, "{}", Dataset::inspect(&items));
         }
 
         let total = items.len();
@@ -208,18 +206,20 @@ where
         let (items, incomplete): (Vec<_>, Vec<_>) = items.partition_result();
 
         if !incomplete.is_empty() {
-            if verbose {
-                let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
-                for err in incomplete.iter() {
-                    if let HydrateError::EmptyFields(_, fields) = err {
-                        for field in fields {
-                            let count = error_counts.entry(field.to_string()).or_default();
-                            *count += 1;
-                        }
+            let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
+            for err in incomplete.iter() {
+                if let HydrateError::EmptyFields(_, fields) = err {
+                    for field in fields {
+                        let count = error_counts.entry(field.to_string()).or_default();
+                        *count += 1;
                     }
                 }
-                element!(ErrorTable(name: "Incomplete".to_string(), total, error_counts)).print();
             }
+            let incomplete_table =
+                element!(ErrorTable(name: "Incomplete".to_string(), total, error_counts))
+                    .to_string();
+            writeln!(buffer, "{}", incomplete_table);
+
             if ignore_incomplete {
                 tracing::warn!("{} incomplete items, ignoring.", incomplete.len());
             } else {
@@ -240,18 +240,18 @@ where
         let (items, invalid): (Vec<_>, Vec<_>) = items.partition_result();
 
         if !invalid.is_empty() {
-            if verbose {
-                let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
-                for err in invalid.iter() {
-                    if let HydrateError::InvalidValues(values) = err {
-                        for value in values {
-                            let count = error_counts.entry(value.field.to_string()).or_default();
-                            *count += 1;
-                        }
+            let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
+            for err in invalid.iter() {
+                if let HydrateError::InvalidValues(values) = err {
+                    for value in values {
+                        let count = error_counts.entry(value.field.to_string()).or_default();
+                        *count += 1;
                     }
                 }
-                element!(ErrorTable(name: "Invalid".to_string(), total, error_counts)).print();
             }
+            let error_table =
+                element!(ErrorTable(name: "Invalid".to_string(), total, error_counts)).to_string();
+            writeln!(buffer, "{}", error_table);
 
             if ignore_invalid {
                 tracing::warn!("{} invalid items, ignoring.", invalid.len());
@@ -261,8 +261,11 @@ where
             }
         }
 
-        if verbose {
-            Dataset::inspect(&items);
+        writeln!(buffer, "{}", Dataset::inspect(&items));
+
+        if let Some(path) = log_path {
+            let mut file = File::create(path)?;
+            file.write_all(&buffer)?;
         }
 
         Ok(items)
@@ -300,6 +303,9 @@ pub enum HydrateError {
 
     #[error("There were multiple errors: {0:?}")]
     Many(Vec<HydrateError>),
+
+    #[error("IO error: {0:?}")]
+    IO(#[from] std::io::Error),
 
     #[error(transparent)]
     Other(#[from] AnyhowError),
@@ -613,7 +619,7 @@ mod tests {
             tributaries: vec![],
             strictness: Strictness::Strict,
         };
-        let res = river.run(true);
+        let res = river.run(None);
         assert!(res.is_err());
 
         // Succeeds, but no results as `field_c` is not filled.
@@ -622,7 +628,7 @@ mod tests {
             tributaries: vec![],
             strictness: Strictness::IgnoreAll,
         };
-        let res = river.run(true).unwrap();
+        let res = river.run(None).unwrap();
         assert!(res.is_empty());
 
         // Fails, as we have an invalid `field_a` value.
@@ -631,7 +637,7 @@ mod tests {
             tributaries: vec![RBox::new(y_set.clone())],
             strictness: Strictness::Strict,
         };
-        let res = river.run(true);
+        let res = river.run(None);
         assert!(res.is_err());
 
         // Succeeds, but only results in one item, as the other has an invalid `field_a` value.
@@ -640,7 +646,7 @@ mod tests {
             tributaries: vec![RBox::new(y_set.clone())],
             strictness: Strictness::IgnoreAll,
         };
-        let res = river.run(true).unwrap();
+        let res = river.run(None).unwrap();
         assert_eq!(res.len(), 1);
 
         // Set to valid value.
@@ -650,7 +656,7 @@ mod tests {
             tributaries: vec![RBox::new(y_set)],
             strictness: Strictness::IgnoreAll,
         };
-        let res = river.run(true).unwrap();
+        let res = river.run(None).unwrap();
         assert_eq!(res.len(), 2);
     }
 
