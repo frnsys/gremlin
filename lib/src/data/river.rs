@@ -207,24 +207,25 @@ where
         );
         let (items, incomplete): (Vec<_>, Vec<_>) = items.partition_result();
 
-        if !incomplete.is_empty() && verbose {
-            let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
-            for err in incomplete.iter() {
-                if let HydrateError::EmptyFields(_, fields) = err {
-                    for field in fields {
-                        let count = error_counts.entry(field.to_string()).or_default();
-                        *count += 1;
+        if !incomplete.is_empty() {
+            if verbose {
+                let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
+                for err in incomplete.iter() {
+                    if let HydrateError::EmptyFields(_, fields) = err {
+                        for field in fields {
+                            let count = error_counts.entry(field.to_string()).or_default();
+                            *count += 1;
+                        }
                     }
                 }
+                element!(ErrorTable(name: "Incomplete".to_string(), total, error_counts)).print();
             }
-            element!(ErrorTable(name: "Incomplete".to_string(), total, error_counts)).print();
-        }
-
-        if ignore_incomplete {
-            tracing::warn!("{} incomplete items, ignoring.", incomplete.len());
-        } else {
-            tracing::error!("{} incomplete items.", incomplete.len());
-            return Err(HydrateError::Many(incomplete));
+            if ignore_incomplete {
+                tracing::warn!("{} incomplete items, ignoring.", incomplete.len());
+            } else {
+                tracing::error!("{} incomplete items.", incomplete.len());
+                return Err(HydrateError::Many(incomplete));
+            }
         }
 
         // Check for invalid items.
@@ -238,23 +239,26 @@ where
         });
         let (items, invalid): (Vec<_>, Vec<_>) = items.partition_result();
 
-        if !invalid.is_empty() && verbose {
-            let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
-            for err in invalid.iter() {
-                if let HydrateError::InvalidValues(values) = err {
-                    for value in values {
-                        let count = error_counts.entry(value.field.to_string()).or_default();
-                        *count += 1;
+        if !invalid.is_empty() {
+            if verbose {
+                let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
+                for err in invalid.iter() {
+                    if let HydrateError::InvalidValues(values) = err {
+                        for value in values {
+                            let count = error_counts.entry(value.field.to_string()).or_default();
+                            *count += 1;
+                        }
                     }
                 }
+                element!(ErrorTable(name: "Invalid".to_string(), total, error_counts)).print();
             }
-            element!(ErrorTable(name: "Invalid".to_string(), total, error_counts)).print();
-        }
-        if ignore_invalid {
-            tracing::warn!("{} invalid items, ignoring.", invalid.len());
-        } else {
-            tracing::error!("{} invalid items.", invalid.len());
-            return Err(HydrateError::Many(invalid));
+
+            if ignore_invalid {
+                tracing::warn!("{} invalid items, ignoring.", invalid.len());
+            } else {
+                tracing::error!("{} invalid items.", invalid.len());
+                return Err(HydrateError::Many(invalid));
+            }
         }
 
         if verbose {
