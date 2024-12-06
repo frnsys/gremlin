@@ -94,6 +94,63 @@ fn is_vec_type(ty: &Type) -> bool {
     }
 }
 
+#[proc_macro_derive(Row, attributes(row))]
+pub fn derive_row(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let struct_name = input.ident;
+
+    let mut columns = Vec::new();
+    let mut values = Vec::new();
+
+    if let Data::Struct(data_struct) = input.data {
+        if let Fields::Named(fields) = data_struct.fields {
+            for field in fields.named {
+                let field_name = field.ident.unwrap();
+                let field_name_str = field_name.to_string();
+
+                // Check for #[row] attribute
+                let is_row_field = field.attrs.iter().any(|attr| attr.path.is_ident("row"));
+
+                if is_row_field {
+                    // Handle nested Row types
+                    let field_type = &field.ty;
+                    columns.push(quote! {
+                        <#field_type as Row>::columns()
+                            .into_iter()
+                            .map(|col| if col.is_empty() {
+                                format!("{}", #field_name_str)
+                            } else {
+                                format!("{}.{}", #field_name_str, col)
+                            })
+                    });
+                    values.push(quote! {
+                        <#field_type as Row>::values(&self.#field_name)
+                    });
+                }
+            }
+        }
+    }
+
+    // Generate the impl
+    let expanded = quote! {
+        impl Row for #struct_name {
+            fn columns() -> Vec<String> {
+                let mut cols = Vec::new();
+                #(std::iter::Extend::extend(&mut cols, #columns);)*
+                cols
+            }
+
+            fn values(&self) -> Vec<f32> {
+                let mut vals = Vec::new();
+                #(std::iter::Extend::extend(&mut vals, #values);)*
+                vals
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
 /// Implements [`FromPartial`](../infra_lib/partial/trait.FromPartial.html) and other auxiliary things.
 ///
 #[proc_macro_derive(Partial, attributes(partial))]
@@ -104,17 +161,38 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     let partial_name = format!("Partial{}", name); // Partial<Name> name
     let partial_ident = syn::Ident::new(&partial_name, name.span()); // Create an identifier for the new name
 
+    let mut derive_partial_row = false;
+    for attr in &input.attrs {
+        if attr.path.is_ident("partial") {
+            if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
+                for nested in meta_list.nested.iter() {
+                    if let NestedMeta::Meta(Meta::Path(path)) = nested {
+                        if path.is_ident("row") {
+                            derive_partial_row = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let mut field_names = vec![];
     let mut field_idents = vec![];
     let mut field_types = vec![];
     let mut field_partial_to_full = vec![];
     let mut field_full_to_partial = vec![];
+    let mut row_fields = vec![];
     if let Data::Struct(data) = &input.data {
         if let Fields::Named(fields) = &data.fields {
             for f in &fields.named {
                 let name = f.ident.as_ref().unwrap().to_string();
                 let ident = f.ident.as_ref().unwrap();
                 let mut new_ty = f.ty.clone();
+
+                let is_row_field = f.attrs.iter().any(|attr| attr.path.is_ident("row"));
+                if is_row_field {
+                    row_fields.push(ident);
+                }
 
                 // Handle `#[partial]` attribute.
                 let is_partial = f.attrs.iter().any(|attr| attr.path.is_ident("partial"));
@@ -183,6 +261,22 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
         panic!("PartialStruct macro can only be used with structs.");
     }
 
+    let row_impl = if derive_partial_row {
+        quote! {
+            impl Row for #partial_ident {
+                fn columns() -> Vec<String> {
+                    #name::columns()
+                }
+
+                fn values(&self) -> Vec<f32> {
+                    vec![#(self.#row_fields.map_or(f32::NAN, |val| f32::from(val)),)*]
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
         pub struct #partial_ident {
@@ -194,6 +288,8 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 self.#field_idents.as_ref().ok_or(HydrateError::MissingExpectedField(stringify!(#name), stringify!(#field_idents)))
             })*
         }
+
+        #row_impl
 
         impl Default for #partial_ident {
             fn default() -> Self {

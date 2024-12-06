@@ -20,6 +20,8 @@ pub use typenum::U;
 pub use units::*;
 pub use var::ExogVariable;
 
+use crate::data::{IterExt, Row};
+
 /// A fixed array of 24 elements.
 pub type ByDayHour<N> = Array<N, 24>;
 impl<N: Numeric> From<HashMap<u8, N>> for ByDayHour<N> {
@@ -29,6 +31,47 @@ impl<N: Numeric> From<HashMap<u8, N>> for ByDayHour<N> {
             val[k as usize] = v;
         }
         val
+    }
+}
+impl<T: Copy> Row for ByDayHour<T>
+where
+    f32: From<T>,
+{
+    fn values(&self) -> Vec<f32> {
+        let mut values: Vec<f32> = self.iter().map(|val| f32::from(*val)).collect();
+        let mean = values.iter().mean();
+        values.insert(0, mean);
+        values
+    }
+
+    fn columns() -> Vec<String> {
+        vec![
+            "mean".into(),
+            "00h".into(),
+            "01h".into(),
+            "02h".into(),
+            "03h".into(),
+            "04h".into(),
+            "05h".into(),
+            "06h".into(),
+            "07h".into(),
+            "08h".into(),
+            "09h".into(),
+            "10h".into(),
+            "11h".into(),
+            "12h".into(),
+            "13h".into(),
+            "14h".into(),
+            "15h".into(),
+            "16h".into(),
+            "17h".into(),
+            "18h".into(),
+            "19h".into(),
+            "20h".into(),
+            "21h".into(),
+            "22h".into(),
+            "23h".into(),
+        ]
     }
 }
 
@@ -74,9 +117,7 @@ impl<N: Numeric> ByYearHour<N> {
     ///
     /// - the hour of the year (0 to 8760; first in the tuple)
     /// - the hour of the day (0 to 24; second in the tuple)
-    pub fn enumerate(
-        &self,
-    ) -> impl Iterator<Item = (usize, usize, &N)> {
+    pub fn enumerate(&self) -> impl Iterator<Item = (usize, usize, &N)> {
         self.iter().enumerate().map(|(year_hour, val)| {
             let day_hour = year_hour % 24;
             (year_hour, day_hour, val)

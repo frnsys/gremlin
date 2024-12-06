@@ -4,7 +4,7 @@ use itertools::Itertools;
 use std::{boxed::Box as RBox, collections::BTreeMap, fmt::Debug};
 use thiserror::Error;
 
-use crate::data::profile::Count;
+use crate::{core::Unit, data::profile::Count};
 
 use super::{
     partial::FromPartial,
@@ -13,17 +13,46 @@ use super::{
 
 pub trait Row {
     /// Describe the columns for this type of row.
-    fn columns() -> &'static [&'static str];
+    fn columns() -> Vec<String>;
 
     /// The values for this row.
     /// They should align with the columns from `columns`.
     fn values(&self) -> Vec<f32>;
 }
 
+pub trait AsRowValue {
+    fn as_f32(&self) -> f32;
+}
+
+pub struct EmptyRow;
+impl Row for EmptyRow {
+    fn columns() -> Vec<String> {
+        vec![]
+    }
+
+    fn values(&self) -> Vec<f32> {
+        vec![]
+    }
+}
+#[macro_export]
+macro_rules! non_dataset {
+    ($t:ty) => {
+        impl Dataset for $t {
+            // TODO make distinction in gremlin b/w dataset tributaries
+            // and compute/transform tributaries, which don't need to
+            // implement dataset
+            type Row = EmptyRow;
+            fn rows(&self) -> impl Iterator<Item = &Self::Row> {
+                std::iter::empty()
+            }
+        }
+    };
+}
+
 pub trait Dataset {
     type Row: Row;
 
-    fn rows(&self) -> &[Self::Row];
+    fn rows(&self) -> impl Iterator<Item = &Self::Row>;
 
     /// Optionally return reference values for the rows' fields.
     /// The expected structure is `{ source name: { field name: reference value } }`.
@@ -39,17 +68,17 @@ pub trait Dataset {
 
     /// Print table describing the rows in this dataset.
     fn inspect(&self) {
-        let mut col_values: BTreeMap<&str, Vec<f32>> = BTreeMap::default();
+        let mut col_values: BTreeMap<String, Vec<f32>> = BTreeMap::default();
         let cols = Self::Row::columns();
-        let rows = self.rows();
+        let rows: Vec<_> = self.rows().collect();
         let total = rows.len();
         for row in rows {
             for (col, val) in cols.iter().zip(row.values().iter()) {
-                let vals = col_values.entry(col).or_default();
+                let vals = col_values.entry(col.clone()).or_default();
                 vals.push(*val);
             }
         }
-        let profiles: BTreeMap<&str, VarProfile> = col_values
+        let profiles: BTreeMap<String, VarProfile> = col_values
             .into_iter()
             .map(|(col, vals)| {
                 let profile = profile(vals.into_iter());
@@ -70,8 +99,8 @@ pub trait Dataset {
 /// A `Vec<Row>` is enough to constitute a `Dataset`.
 impl<R: Row> Dataset for Vec<R> {
     type Row = R;
-    fn rows(&self) -> &[R] {
-        &self
+    fn rows(&self) -> impl Iterator<Item = &R> {
+        self.iter()
     }
 }
 
@@ -109,7 +138,7 @@ pub struct InvalidValue {
 ///   as defined by the [`Constrained`] implementation.
 /// * _Incomplete_ items are those that haven't been fully hydrated,
 ///   i.e. the [`Partial`] has missing values.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub enum Strictness {
     /// Produce an error if any invalid or incomplete items are found.
     #[default]
@@ -126,6 +155,7 @@ pub enum Strictness {
 }
 
 /// A `River` is a pipeline for producing a set of items of type `T`.
+#[derive(Debug)]
 pub struct River<T: FromPartial + Constrained + Row>
 where
     T::Partial: Row,
@@ -333,7 +363,7 @@ fn ErrorTable<'a>(props: &ErrorTableProps) -> impl Into<AnyElement<'a>> {
 struct VarTableProps {
     name: &'static str,
     total: usize,
-    vars: BTreeMap<&'static str, VarProfile>,
+    vars: BTreeMap<String, VarProfile>,
     refs: BTreeMap<&'static str, BTreeMap<&'static str, f32>>,
 }
 
@@ -387,7 +417,7 @@ fn VarTable<'a>(props: &VarTableProps) -> impl Into<AnyElement<'a>> {
 
                 #(props.vars.iter().map(|(var, prof)| element! {
                     Box(flex_direction: FlexDirection::Column, padding_right: 1, align_items: AlignItems::End) {
-                        Text(content: *var, decoration: TextDecoration::Underline)
+                        Text(content: var, decoration: TextDecoration::Underline)
                         Text(content: format!("{}", prof.missing.count), color: if prof.missing.all() {
                             Color::Red
                         } else {
@@ -408,7 +438,7 @@ fn VarTable<'a>(props: &VarTableProps) -> impl Into<AnyElement<'a>> {
                         Text(content: &prof.summary.histogram, color: Color::DarkGrey)
                         Text(content: "------", color: Color::Black)
                         #(props.refs.values().map(|refs| {
-                            refs.get(var).map_or_else(|| {
+                            refs.get(var.as_str()).map_or_else(|| {
                                 element! {
                                     Text(content: "-----", color: Color::Black)
                                 }
@@ -425,18 +455,93 @@ fn VarTable<'a>(props: &VarTableProps) -> impl Into<AnyElement<'a>> {
     }
 }
 
+impl<T> Row for T
+where
+    T: AsRowValue + Copy,
+{
+    fn columns() -> Vec<String> {
+        vec!["".into()]
+    }
+
+    fn values(&self) -> Vec<f32> {
+        vec![self.as_f32()]
+    }
+}
+
+// Can't do this as it would conflict
+// with the *possibility* of `From<f32>`
+// being implemented in the future for `Option<f32>`.
+// See <https://github.com/rust-lang/rfcs/issues/2758>
+// impl<T> AsRowValue for T
+// where
+//     T: Copy,
+//     f32: From<T>,
+// {
+//     fn as_f32(&self) -> f32 {
+//         f32::from(*self)
+//     }
+// }
+impl AsRowValue for f32 {
+    fn as_f32(&self) -> f32 {
+        *self
+    }
+}
+impl AsRowValue for Option<f32> {
+    fn as_f32(&self) -> f32 {
+        self.unwrap_or(f32::NAN)
+    }
+}
+impl AsRowValue for Option<u16> {
+    fn as_f32(&self) -> f32 {
+        self.map_or(f32::NAN, |val| val as f32)
+    }
+}
+impl<U: Unit> AsRowValue for U {
+    fn as_f32(&self) -> f32 {
+        self.value()
+    }
+}
+
+/// Macro for conveniently defining a [`Constraint`].
+// #[macro_export]
+// macro_rules! constraint {
+//     (>$val: expr) => {
+//         $crate::draw::Constraint::LowerBound($val)
+//     };
+//     (>=$val: expr) => {
+//         $crate::draw::Constraint::LowerBoundInclusive($val)
+//     };
+//     (<$val: expr) => {
+//         $crate::draw::Constraint::UpperBound($val)
+//     };
+//     (<=$val: expr) => {
+//         $crate::draw::Constraint::UpperBoundInclusive($val)
+//     };
+//     ($val_a: expr => $val_b: expr) => {
+//         $crate::draw::Constraint::RangeInclusive($val_a, $val_b)
+//     }; // ($val_a: expr => $val_b: expr) => {
+//        //     $crate::draw::Constraint::Range($val_a, $val_b)
+//        // };
+// }
+
 #[cfg(test)]
 mod tests {
-    use gremlin_macros::Partial;
+    use gremlin_macros::{Partial, Row};
 
     use super::*;
 
     #[test]
     fn test_river() {
-        #[derive(Default, Partial)]
+        #[derive(Default, Partial, Row)]
+        #[partial(row)]
         struct Target {
+            #[row]
             field_a: f32,
+
+            #[row]
             field_b: f32,
+
+            #[row]
             field_c: f32,
         }
         impl Constrained for Target {
@@ -451,31 +556,13 @@ mod tests {
                 Ok(())
             }
         }
-        // TODO derive Row
-        impl Row for Target {
-            fn values(&self) -> Vec<f32> {
-                vec![self.field_a, self.field_b, self.field_c]
-            }
-            fn columns() -> &'static [&'static str] {
-                &["field_a", "field_b", "field_c"]
-            }
-        }
-        impl Row for PartialTarget {
-            fn values(&self) -> Vec<f32> {
-                vec![
-                    self.field_a.unwrap_or(f32::NAN),
-                    self.field_b.unwrap_or(f32::NAN),
-                    self.field_c.unwrap_or(f32::NAN),
-                ]
-            }
-            fn columns() -> &'static [&'static str] {
-                &["field_a", "field_b", "field_c"]
-            }
-        }
 
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Row)]
         struct XRow {
+            #[row]
             field_a: f32,
+
+            #[row]
             field_b: f32,
         }
         impl Source<Target> for Vec<XRow> {
@@ -488,17 +575,10 @@ mod tests {
                 Ok(items.collect())
             }
         }
-        impl Row for XRow {
-            fn values(&self) -> Vec<f32> {
-                vec![self.field_a, self.field_b]
-            }
-            fn columns() -> &'static [&'static str] {
-                &["field_a", "field_b"]
-            }
-        }
 
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Row)]
         struct YRow {
+            #[row]
             field_c: f32,
         }
         impl Tributary<Target> for Vec<YRow> {
@@ -507,14 +587,6 @@ mod tests {
                     item.field_c = Some(self[i].field_c);
                 }
                 Ok(())
-            }
-        }
-        impl Row for YRow {
-            fn values(&self) -> Vec<f32> {
-                vec![self.field_c]
-            }
-            fn columns() -> &'static [&'static str] {
-                &["field_c"]
             }
         }
 
@@ -576,5 +648,56 @@ mod tests {
         };
         let res = river.run(true).unwrap();
         assert_eq!(res.len(), 2);
+    }
+
+    #[test]
+    fn test_derive_row() {
+        #[derive(Row)]
+        struct Foo {
+            #[row]
+            field_a: f32,
+            #[row]
+            field_b: SomeUnit,
+            field_c: String,
+            #[row]
+            field_d: SomeNestedType,
+        }
+
+        #[derive(Row)]
+        struct SomeNestedType {
+            #[row]
+            subfield_a: f32,
+            #[row]
+            subfield_b: f32,
+        }
+
+        #[derive(Clone, Copy)]
+        struct SomeUnit;
+        impl AsRowValue for SomeUnit {
+            fn as_f32(&self) -> f32 {
+                1.0
+            }
+        }
+
+        let foo = Foo {
+            field_a: 42.0,
+            field_b: SomeUnit,
+            field_c: "hello".to_string(),
+            field_d: SomeNestedType {
+                subfield_a: 3.14,
+                subfield_b: 2.71,
+            },
+        };
+
+        assert_eq!(
+            Foo::columns(),
+            vec![
+                "field_a",
+                "field_b",
+                "field_d.subfield_a",
+                "field_d.subfield_b"
+            ]
+        );
+        assert_eq!(foo.values(), vec![42., 1., 3.14, 2.71]);
     }
 }

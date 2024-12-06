@@ -35,21 +35,25 @@ pub use paste;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gremlin_macros::Row;
 
     #[test]
     fn test_derive_partial() {
-        use crate::data::{FromPartial, HydrateError};
+        use crate::data::{FromPartial, HydrateError, Row};
         #[derive(
-            Debug, Default, Partial, PartialEq, Clone, serde::Serialize, serde::Deserialize,
+            Debug, Default, Partial, PartialEq, Clone, serde::Serialize, serde::Deserialize, Row,
         )]
         struct TestInner {
             a: String,
         }
 
-        #[derive(Default, Partial)]
+        #[derive(Default, Partial, Row)]
         struct Test {
             a: u32,
-            b: i32,
+
+            #[row]
+            b: f32,
+
             c: Vec<TestInner>,
 
             #[partial]
