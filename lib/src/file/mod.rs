@@ -178,7 +178,7 @@ fn _read_flat_csv<R: std::io::Read, T: Serialize + DeserializeOwned + Default>(
                                 // How yaml encodes nans
                                 Value::Number(Number::from(f32::NAN))
                             } else {
-                                Value::from(val.parse::<f32>().inspect_err(|err| {
+                                Value::from(val.parse::<f32>().inspect_err(|_err| {
                                     tracing::error!("Failed to parse float: {val}");
                                 })?)
                             },

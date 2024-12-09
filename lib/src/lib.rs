@@ -21,6 +21,7 @@ pub mod file;
 pub mod id;
 pub mod probe;
 pub mod record;
+pub mod stats;
 pub mod util;
 
 #[cfg(feature = "plotting")]

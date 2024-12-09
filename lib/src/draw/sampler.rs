@@ -237,7 +237,7 @@ impl<T: Sampleable> Sampler<T> {
         n_samples: usize,
         given: &[(&str, Datum)],
         columns: &[&'a str],
-    ) -> Result<Vec<HashMap<&str, f32>>, SamplerError> {
+    ) -> Result<Vec<HashMap<&'a str, f32>>, SamplerError> {
         let mut rng = rand::thread_rng();
         let given = lace::Given::Conditions(given.to_vec());
         let max_tries = MAX_TRIES_PER_SAMPLE * n_samples;

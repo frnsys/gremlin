@@ -102,14 +102,19 @@ impl PmlModel {
             }
 
             if let Some(constraint) = column.constraint {
-                df[name].f64()?.apply(|val| {
-                    val.and_then(|val| {
-                        constraint
-                            .transform(val)
-                            .inspect_err(|err| tracing::error!("{name}: {}", err))
-                            .ok()
-                    })
-                });
+                df.with_column(
+                    df[name]
+                        .f64()?
+                        .apply(|val| {
+                            val.and_then(|val| {
+                                constraint
+                                    .transform(val)
+                                    .inspect_err(|err| tracing::error!("{name}: {}", err))
+                                    .ok()
+                            })
+                        })
+                        .into_series(),
+                )?;
             }
         }
 
@@ -221,7 +226,7 @@ impl PmlModel {
         n_samples: usize,
         given: &[(&str, Datum)],
         columns: &[&'a str],
-    ) -> Result<Vec<HashMap<&str, f32>>, SamplerError> {
+    ) -> Result<Vec<HashMap<&'a str, f32>>, SamplerError> {
         if self.sampler.is_none() {
             let columns = self.columns.iter().map(|c| c.column.clone()).collect();
             self.sampler = Some(Sampler::new(self.engine.clone(), columns));

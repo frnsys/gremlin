@@ -1,3 +1,34 @@
+//! [`River`]s are data refinement pipelines meant to produce a collection
+//! of some type `T` at the end.
+//!
+//! A `River` is composed of a [`Source`], which produces the initial population
+//! of `T`, and then zero or more [`Tributary`]s, which fill in or modify fields.
+//!
+//! In fact, a `River` works with _partials_ of `T`, which is a mirror of `T` where
+//! all fields are wrapped as `Option`s. Each step of the River is meant to fill
+//! in some of these `Option`s, with the expectation that all fields are filled
+//! by the end. Any instances with remaining `None` fields are considered _incomplete_
+//! and can either be ignored or cause the entire pipeline to fail.
+//!
+//! `T` is also expected to implement [`Constrained`], which is used to check for any
+//! _invalid_ instances, which can again either be ignored or cause the entire pipeline
+//! to fail.
+//!
+//! To better understand what's happening in the pipeline there are outputs to describe the
+//! input data, output data, and custom warnings. These are handled by three traits: [`Dataset`],
+//! [`Row`], and [`Imperfect`].
+//!
+//! [`Dataset`] basically describes a collection of [`Row`]s, and a `Row` should describe the
+//! fields of a struct in a table-style format; i.e. with column names and values (currently
+//! fixed to `f32`). In its simplest form a `Dataset` is just a `Vec<Row>`, but they can
+//! additionally implement reference values for each column and output grouped tables.
+//!
+//! [`Imperfect`] is meant to describe what can go wrong with a particular dataset, e.g.
+//! miscoded values, and provides a way to log these problems. These are not intended
+//! to be hard failures but rather warnings about potential data quality issues to help identify
+//! where problematic values may be coming from. For hard failures instead look to [`Constrained`].
+
+use ahash::HashMap;
 use anyhow::Error as AnyhowError;
 use fs_err::File;
 use iocraft::prelude::*;
@@ -10,6 +41,7 @@ use crate::{core::Unit, data::profile::Count};
 use super::{
     partial::FromPartial,
     profile::{profile, VarProfile},
+    Imperfect,
 };
 
 pub trait Row {
@@ -108,32 +140,25 @@ impl<R: Row> Dataset for Vec<R> {
     }
 }
 
-/// Erase the associated `Row` type in the `Dataset` trait.
-trait DatasetErased {
-    fn inspect(&self) -> String;
-}
-impl<R: Row, T: Dataset<Row = R>> DatasetErased for T {
-    fn inspect(&self) -> String {
-        Dataset::inspect(self)
-    }
-}
-
 /// Describe & validate any constraints on fields for this type.
 pub trait Constrained {
-    fn validate(&self) -> Result<(), Vec<InvalidValue>>;
+    /// Return a string identifying this instance.
+    fn id(&self) -> String;
+
+    fn validate(&self) -> Vec<InvalidValue>;
 }
 
 /// Describe an invalid value.
 #[derive(Debug)]
 pub struct InvalidValue {
     /// The field that is invalid.
-    field: String,
+    pub field: &'static str,
 
     /// The provided value.
-    value: String,
+    pub value: String,
 
     /// Describe the violated constraint.
-    constraint: String,
+    pub constraint: String,
 }
 
 /// Define the river's strictness.
@@ -159,8 +184,9 @@ pub enum Strictness {
 }
 
 /// A `River` is a pipeline for producing a set of items of type `T`.
+#[allow(private_bounds)]
 #[derive(Debug)]
-pub struct River<T: FromPartial + Constrained + Row>
+pub struct River<T: FromPartial + Constrained + Row + Imperfect>
 where
     T::Partial: Row,
 {
@@ -176,7 +202,7 @@ where
     /// Define the river's behavior when encountering incomplete or invalid items.
     pub strictness: Strictness,
 }
-impl<T: FromPartial + Constrained + Row> River<T>
+impl<T: FromPartial + Constrained + Row + Imperfect> River<T>
 where
     T::Partial: Row,
 {
@@ -184,15 +210,18 @@ where
         let mut buffer = Vec::new();
 
         // Generate initial items.
-        writeln!(buffer, "{}", self.source.inspect());
+        writeln!(buffer, "{}", self.source.inspect_data())?;
         let mut items = self.source.generate()?;
-        writeln!(buffer, "{}", Dataset::inspect(&items));
+        writeln!(buffer, "{}", self.source.inspect_logs())?;
+        writeln!(buffer, "{}", Dataset::inspect(&items))?;
 
         // Fill in (hydrate) items.
         for tributary in &self.tributaries {
-            writeln!(buffer, "{}", tributary.inspect());
+            writeln!(buffer, "{}", tributary.inspect_data())?;
             tributary.fill(&mut items)?;
-            writeln!(buffer, "{}", Dataset::inspect(&items));
+            writeln!(buffer, "{}", Dataset::inspect(&items))?;
+            writeln!(buffer, "{}", tributary.inspect_logs())?;
+            // writeln!(buffer, "{}", T::collect_logs())?; // TODO
         }
 
         let total = items.len();
@@ -218,7 +247,7 @@ where
             let incomplete_table =
                 element!(ErrorTable(name: "Incomplete".to_string(), total, error_counts))
                     .to_string();
-            writeln!(buffer, "{}", incomplete_table);
+            writeln!(buffer, "{}", incomplete_table)?;
 
             if ignore_incomplete {
                 tracing::warn!("{} incomplete items, ignoring.", incomplete.len());
@@ -233,9 +262,13 @@ where
             self.strictness,
             Strictness::IgnoreAll | Strictness::IgnoreInvalid
         );
-        let items = items.into_iter().map(|item| match item.validate() {
-            Ok(_) => Ok(item),
-            Err(errs) => Err(HydrateError::InvalidValues(errs)),
+        let items = items.into_iter().map(|item| {
+            let errs = item.validate();
+            if errs.is_empty() {
+                Ok(item)
+            } else {
+                Err(HydrateError::InvalidValues(errs))
+            }
         });
         let (items, invalid): (Vec<_>, Vec<_>) = items.partition_result();
 
@@ -251,7 +284,7 @@ where
             }
             let error_table =
                 element!(ErrorTable(name: "Invalid".to_string(), total, error_counts)).to_string();
-            writeln!(buffer, "{}", error_table);
+            writeln!(buffer, "{}", error_table)?;
 
             if ignore_invalid {
                 tracing::warn!("{} invalid items, ignoring.", invalid.len());
@@ -261,7 +294,7 @@ where
             }
         }
 
-        writeln!(buffer, "{}", Dataset::inspect(&items));
+        writeln!(buffer, "{}", Dataset::inspect(&items))?;
 
         if let Some(path) = log_path {
             let mut file = File::create(path)?;
@@ -272,22 +305,50 @@ where
     }
 }
 
-/// A `Source` produces the initial population of partial `T`s.
-/// See [`River`].
-pub trait Source<T>: Debug + DatasetErased
+/// Any step in the data refinement pipeline,
+/// e.g. a [`Source`] or a [`Tributary`], needs to
+/// implement this trait.
+///
+/// However you do not need to implement this trait
+/// directly; instead you should implement [`Dataset`]
+/// and [`Imperfect`]
+trait DataStep {
+    fn inspect_data(&self) -> String;
+    fn inspect_logs(&self) -> String;
+}
+impl<T: Dataset + Imperfect> DataStep for T
 where
-    T: FromPartial,
+    for<'a> &'static str: From<&'a <T as Imperfect>::Warning>,
 {
-    fn generate(&self) -> Result<Vec<T::Partial>, HydrateError>;
+    fn inspect_data(&self) -> String {
+        Dataset::inspect(self)
+    }
+
+    fn inspect_logs(&self) -> String {
+        let counted: HashMap<&'static str, usize> = Self::collect_logs()
+            .into_iter()
+            .map(|(warn, warnings)| (warn, warnings.len()))
+            .collect();
+
+        if counted.is_empty() {
+            String::new()
+        } else {
+            let name = std::any::type_name::<T>().split("::").last().unwrap();
+            element!(LogTable(name, logs: counted)).to_string()
+        }
+    }
 }
 
 /// A `Tributary` fills in fields in the population of partial `T`s.
 /// See [`River`].
-pub trait Tributary<T>: Debug + DatasetErased
-where
-    T: FromPartial,
-{
+pub trait Tributary<T: FromPartial>: Debug + DataStep {
     fn fill(&self, items: &mut [T::Partial]) -> Result<(), HydrateError>;
+}
+
+/// A `Source` produces the initial population of partial `T`s.
+/// See [`River`].
+pub trait Source<T: FromPartial>: Debug + DataStep {
+    fn generate(&self) -> Result<Vec<T::Partial>, HydrateError>;
 }
 
 #[derive(Debug, Error)]
@@ -534,6 +595,55 @@ impl<U: Unit> AsRowValue for U {
 //        // };
 // }
 
+#[derive(Default, Props)]
+struct LogTableProps {
+    name: &'static str,
+    logs: HashMap<&'static str, usize>,
+}
+
+#[component]
+fn LogTable<'a>(props: &LogTableProps) -> impl Into<AnyElement<'a>> {
+    element! {
+        Box(
+            flex_direction: FlexDirection::Column,
+            margin_top: 1,
+            margin_bottom: 1,
+            border_style: BorderStyle::Single,
+            border_color: Color::Black,
+        ) {
+            Box(
+                flex_direction: FlexDirection::Row,
+                width: Size::Auto,
+                justify_content: JustifyContent::SpaceBetween,
+                column_gap: Gap::Length(2),
+                margin_bottom: 1,
+                margin_left: 1,
+                margin_right: 1,
+            ) {
+                Text(content: props.name, weight: Weight::Bold)
+                Text(content: "logged issues")
+            }
+            Box(
+                flex_direction: FlexDirection::Row,
+                width: Size::Auto,
+            ) {
+                Box(flex_direction: FlexDirection::Column, align_items: AlignItems::End, padding_left: 1, padding_right: 1) {
+                    Text(content: "Problem", weight: Weight::Bold)
+                    #(props.logs.iter().map(|(problem, count)| element! {
+                        Text(content: *problem, decoration: TextDecoration::Underline)
+                    }))
+                }
+                Box(flex_direction: FlexDirection::Column, align_items: AlignItems::End, padding_left: 1, padding_right: 1) {
+                    Text(content: "Count", weight: Weight::Bold)
+                    #(props.logs.iter().map(|(problem, count)| element! {
+                        Text(content: format!("{}", count))
+                    }))
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use gremlin_macros::{Partial, Row};
@@ -555,15 +665,19 @@ mod tests {
             field_c: f32,
         }
         impl Constrained for Target {
-            fn validate(&self) -> Result<(), Vec<InvalidValue>> {
+            fn id() -> String {
+                String::new()
+            }
+
+            fn validate(&self) -> Vec<InvalidValue> {
                 if self.field_a < 0.0 {
-                    return Err(vec![InvalidValue {
+                    return vec![InvalidValue {
                         field: "field_a".into(),
                         value: self.field_a.to_string(),
                         constraint: "Must be gte 0.".into(),
-                    }]);
+                    }];
                 }
-                Ok(())
+                vec![]
             }
         }
 
