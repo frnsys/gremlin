@@ -6,14 +6,16 @@ use std::{
 use ahash::HashMap;
 use thiserror::Error;
 
+use super::Row;
+
 #[macro_export]
 macro_rules! imperfect {
     ($t:ty, $err:ty) => {
         impl Imperfect for $t {
             type Warning = $err;
-            fn logger() -> &'static DataLogger<Self::Warning> {
-                static LOGGER: std::sync::LazyLock<DataLogger<$err>> =
-                    std::sync::LazyLock::new(|| DataLogger::new(stringify!($t)));
+            fn logger() -> &'static $crate::data::DataLogger<Self::Warning> {
+                static LOGGER: std::sync::LazyLock<$crate::data::DataLogger<$err>> =
+                    std::sync::LazyLock::new(|| $crate::data::DataLogger::new(stringify!($t)));
                 &LOGGER
             }
         }
@@ -31,7 +33,7 @@ impl From<&Infallible> for &'static str {
 #[macro_export]
 macro_rules! perfect {
     ($t:ty) => {
-        $crate::imperfect!($t, Infallible);
+        $crate::imperfect!($t, $crate::data::Infallible);
     };
 }
 
@@ -80,5 +82,14 @@ impl<T: Display + Debug> DataLogger<T> {
             group.push(log);
         }
         groups
+    }
+}
+
+impl<R: Row> Imperfect for Vec<R> {
+    type Warning = Infallible;
+    fn logger() -> &'static DataLogger<Self::Warning> {
+        static LOGGER: std::sync::LazyLock<DataLogger<Infallible>> =
+            std::sync::LazyLock::new(|| DataLogger::new("Rows"));
+        &LOGGER
     }
 }

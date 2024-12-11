@@ -13,7 +13,7 @@ serde_with::with_prefix!(distinct "distinct.");
 serde_with::with_prefix!(outliers "outliers.");
 serde_with::with_prefix!(summary "summary.");
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct Count {
     pub count: usize,
     pub percent: f32,
@@ -53,7 +53,7 @@ pub struct SetProfile {
 }
 
 /// Data profile for a single variable.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct VarProfile {
     #[serde(flatten, with = "missing")]
     pub missing: Count,
@@ -168,7 +168,7 @@ mod console {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Summary {
     pub min: f32,
     pub max: f32,

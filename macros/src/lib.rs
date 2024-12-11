@@ -269,7 +269,7 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 }
 
                 fn values(&self) -> Vec<f32> {
-                    vec![#(self.#row_fields.map_or(f32::NAN, |val| f32::from(val)),)*]
+                    vec![#(self.#row_fields.map_or(f32::NAN, |val| val.as_f32()),)*]
                 }
             }
         }

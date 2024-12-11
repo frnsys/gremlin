@@ -28,138 +28,20 @@
 //! to be hard failures but rather warnings about potential data quality issues to help identify
 //! where problematic values may be coming from. For hard failures instead look to [`Constrained`].
 
-use ahash::HashMap;
 use anyhow::Error as AnyhowError;
 use fs_err::File;
-use iocraft::prelude::*;
+use iocraft::{element, ElementExt};
 use itertools::Itertools;
-use std::{boxed::Box as RBox, collections::BTreeMap, fmt::Debug, io::Write, path::Path};
+use std::{collections::BTreeMap, fmt::Debug, io::Write, path::Path};
 use thiserror::Error;
 
-use crate::{core::Unit, data::profile::Count};
+use crate::data::display::CountTable;
 
 use super::{
+    constrain::{Constrained, InvalidValue},
     partial::FromPartial,
-    profile::{profile, VarProfile},
-    Imperfect,
+    Dataset, Imperfect, Row,
 };
-
-pub trait Row {
-    /// Describe the columns for this type of row.
-    fn columns() -> Vec<String>;
-
-    /// The values for this row.
-    /// They should align with the columns from `columns`.
-    fn values(&self) -> Vec<f32>;
-}
-
-pub trait AsRowValue {
-    fn as_f32(&self) -> f32;
-}
-
-pub struct EmptyRow;
-impl Row for EmptyRow {
-    fn columns() -> Vec<String> {
-        vec![]
-    }
-
-    fn values(&self) -> Vec<f32> {
-        vec![]
-    }
-}
-#[macro_export]
-macro_rules! non_dataset {
-    ($t:ty) => {
-        impl Dataset for $t {
-            // TODO make distinction in gremlin b/w dataset tributaries
-            // and compute/transform tributaries, which don't need to
-            // implement dataset
-            type Row = EmptyRow;
-            fn rows(&self) -> impl Iterator<Item = &Self::Row> {
-                std::iter::empty()
-            }
-            fn inspect(&self) -> String {
-                String::new()
-            }
-        }
-    };
-}
-
-pub trait Dataset {
-    type Row: Row;
-
-    fn rows(&self) -> impl Iterator<Item = &Self::Row>;
-
-    /// Optionally return reference values for the rows' fields.
-    /// The expected structure is `{ source name: { field name: reference value } }`.
-    fn refs(&self) -> BTreeMap<&'static str, BTreeMap<&'static str, f32>> {
-        BTreeMap::default()
-    }
-
-    /// Optionally return the rows grouped in some way,
-    /// for displaying separate tables for each group.
-    fn grouped(&self) -> Option<BTreeMap<String, Vec<&Self::Row>>> {
-        None
-    }
-
-    /// Print table describing the rows in this dataset.
-    fn inspect(&self) -> String {
-        let mut col_values: BTreeMap<String, Vec<f32>> = BTreeMap::default();
-        let cols = Self::Row::columns();
-        let rows: Vec<_> = self.rows().collect();
-        let total = rows.len();
-        for row in rows {
-            for (col, val) in cols.iter().zip(row.values().iter()) {
-                let vals = col_values.entry(col.clone()).or_default();
-                vals.push(*val);
-            }
-        }
-        let profiles: BTreeMap<String, VarProfile> = col_values
-            .into_iter()
-            .map(|(col, vals)| {
-                let profile = profile(vals.into_iter());
-                (col, profile)
-            })
-            .collect();
-
-        let refs = self.refs();
-
-        let name = std::any::type_name::<Self::Row>()
-            .split("::")
-            .last()
-            .unwrap();
-        element!(VarTable(name, total, refs, vars: profiles)).to_string()
-    }
-}
-
-/// A `Vec<Row>` is enough to constitute a `Dataset`.
-impl<R: Row> Dataset for Vec<R> {
-    type Row = R;
-    fn rows(&self) -> impl Iterator<Item = &R> {
-        self.iter()
-    }
-}
-
-/// Describe & validate any constraints on fields for this type.
-pub trait Constrained {
-    /// Return a string identifying this instance.
-    fn id(&self) -> String;
-
-    fn validate(&self) -> Vec<InvalidValue>;
-}
-
-/// Describe an invalid value.
-#[derive(Debug)]
-pub struct InvalidValue {
-    /// The field that is invalid.
-    pub field: &'static str,
-
-    /// The provided value.
-    pub value: String,
-
-    /// Describe the violated constraint.
-    pub constraint: String,
-}
 
 /// Define the river's strictness.
 ///
@@ -186,23 +68,23 @@ pub enum Strictness {
 /// A `River` is a pipeline for producing a set of items of type `T`.
 #[allow(private_bounds)]
 #[derive(Debug)]
-pub struct River<T: FromPartial + Constrained + Row + Imperfect>
+pub struct River<T: FromPartial + Constrained + Row>
 where
     T::Partial: Row,
 {
     /// The [`Source`] produces the initial partial versions of `T`.
-    pub source: RBox<dyn Source<T>>,
+    pub source: Box<dyn Source<T>>,
 
     /// These define additional data sources that can fill in or overwrite
     /// additional fields in the partial versions of `T`.
     /// Note that the sequence here is important, as it's the order each
     /// [`Tributary`] is applied in, so later ones can override earlier ones.
-    pub tributaries: Vec<RBox<dyn Tributary<T>>>,
+    pub tributaries: Vec<Box<dyn Tributary<T>>>,
 
     /// Define the river's behavior when encountering incomplete or invalid items.
     pub strictness: Strictness,
 }
-impl<T: FromPartial + Constrained + Row + Imperfect> River<T>
+impl<T: FromPartial + Constrained + Row> River<T>
 where
     T::Partial: Row,
 {
@@ -245,7 +127,7 @@ where
                 }
             }
             let incomplete_table =
-                element!(ErrorTable(name: "Incomplete".to_string(), total, error_counts))
+                element!(CountTable(name: "Incomplete".to_string(), total: Some(total), counts: error_counts))
                     .to_string();
             writeln!(buffer, "{}", incomplete_table)?;
 
@@ -283,7 +165,7 @@ where
                 }
             }
             let error_table =
-                element!(ErrorTable(name: "Invalid".to_string(), total, error_counts)).to_string();
+                element!(CountTable(name: "Invalid".to_string(), total: Some(total), counts: error_counts)).to_string();
             writeln!(buffer, "{}", error_table)?;
 
             if ignore_invalid {
@@ -325,16 +207,16 @@ where
     }
 
     fn inspect_logs(&self) -> String {
-        let counted: HashMap<&'static str, usize> = Self::collect_logs()
+        let counted: BTreeMap<String, usize> = Self::collect_logs()
             .into_iter()
-            .map(|(warn, warnings)| (warn, warnings.len()))
+            .map(|(warn, warnings)| (warn.to_string(), warnings.len()))
             .collect();
 
         if counted.is_empty() {
             String::new()
         } else {
             let name = std::any::type_name::<T>().split("::").last().unwrap();
-            element!(LogTable(name, logs: counted)).to_string()
+            element!(CountTable(name, counts: counted)).to_string()
         }
     }
 }
@@ -372,281 +254,11 @@ pub enum HydrateError {
     Other(#[from] AnyhowError),
 }
 
-#[derive(Default, Props)]
-struct ErrorTableProps {
-    name: String,
-    total: usize,
-    error_counts: BTreeMap<String, usize>,
-}
-
-#[component]
-fn ErrorTable<'a>(props: &ErrorTableProps) -> impl Into<AnyElement<'a>> {
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            margin_top: 1,
-            margin_bottom: 1,
-            border_style: BorderStyle::Single,
-            border_color: Color::Black,
-        ) {
-            Box(
-                flex_direction: FlexDirection::Row,
-                width: Size::Auto,
-                justify_content: JustifyContent::SpaceBetween,
-                column_gap: Gap::Length(2),
-                margin_bottom: 1,
-                margin_left: 1,
-                margin_right: 1,
-            ) {
-                Text(content: &props.name, weight: Weight::Bold)
-                Text(content: format!("{} rows", props.total))
-            }
-            Box(
-                flex_direction: FlexDirection::Row,
-                width: Size::Auto,
-            ) {
-                Box(flex_direction: FlexDirection::Column, align_items: AlignItems::End, padding_left: 1, padding_right: 1) {
-                    Text(content: "Field", weight: Weight::Bold)
-                    #(props.error_counts.keys().map(|err| element! {
-                        Text(content: err)
-                    }))
-                }
-
-                Box(flex_direction: FlexDirection::Column, padding_right: 1, align_items: AlignItems::End) {
-                    Text(content: "Count", weight: Weight::Bold)
-                    #(props.error_counts.values().map(|count| element! {
-                        Text(content: count.to_string())
-                    }))
-                }
-
-                Box(flex_direction: FlexDirection::Column, padding_right: 1, align_items: AlignItems::End) {
-                    Text(content: "Percent", weight: Weight::Bold)
-                    #(props.error_counts.values().map(|count| element! {
-                        Text(content: Count::new(*count, props.total).display_percent())
-                    }))
-                }
-            }
-        }
-    }
-}
-
-#[derive(Default, Props)]
-struct VarTableProps {
-    name: &'static str,
-    total: usize,
-    vars: BTreeMap<String, VarProfile>,
-    refs: BTreeMap<&'static str, BTreeMap<&'static str, f32>>,
-}
-
-#[component]
-fn VarTable<'a>(props: &VarTableProps) -> impl Into<AnyElement<'a>> {
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            margin_top: 1,
-            margin_bottom: 1,
-            border_style: BorderStyle::Single,
-            border_color: Color::Black,
-        ) {
-            Box(
-                flex_direction: FlexDirection::Row,
-                width: Size::Auto,
-                justify_content: JustifyContent::SpaceBetween,
-                column_gap: Gap::Length(2),
-                margin_bottom: 1,
-                margin_left: 1,
-                margin_right: 1,
-            ) {
-                Text(content: props.name, weight: Weight::Bold)
-                Text(content: format!("{} rows", props.total))
-            }
-            Box(
-                flex_direction: FlexDirection::Row,
-                width: Size::Auto,
-            ) {
-                Box(flex_direction: FlexDirection::Column, align_items: AlignItems::End, padding_left: 1, padding_right: 1) {
-                    Text(content: "Var", weight: Weight::Bold)
-                    Text(content: "Missing", weight: Weight::Bold)
-                    Text(content: "Distinct", weight: Weight::Bold)
-                    Text(content: "Duplicate", weight: Weight::Bold)
-                    Text(content: "Zero", weight: Weight::Bold)
-                    Text(content: "Negative", weight: Weight::Bold)
-                    Text(content: "Infinite", weight: Weight::Bold)
-                    Text(content: "Outliers", weight: Weight::Bold)
-                    Text(content: "Mean", weight: Weight::Bold)
-                    Text(content: "Median", weight: Weight::Bold)
-                    Text(content: "Std Dev", weight: Weight::Bold)
-                    Text(content: "Min", weight: Weight::Bold)
-                    Text(content: "Max", weight: Weight::Bold)
-                    Text(content: "Range", weight: Weight::Bold)
-                    Text(content: "Dist", weight: Weight::Bold)
-                    Text(content: "------", color: Color::Black)
-                    #(props.refs.keys().map(|source| element! {
-                        Text(content: *source)
-                    }))
-                }
-
-                #(props.vars.iter().map(|(var, prof)| element! {
-                    Box(flex_direction: FlexDirection::Column, padding_right: 1, align_items: AlignItems::End) {
-                        Text(content: var, decoration: TextDecoration::Underline)
-                        Text(content: format!("{}", prof.missing.count), color: if prof.missing.all() {
-                            Color::Red
-                        } else {
-                            Color::Reset
-                        })
-                        Text(content: format!("{}", prof.distinct.count))
-                        Text(content: format!("{}", prof.duplicate.count))
-                        Text(content: format!("{}", prof.zero.count))
-                        Text(content: format!("{}", prof.negative.count))
-                        Text(content: format!("{}", prof.infinite.count))
-                        Text(content: format!("{}", prof.summary.outliers.count))
-                        Text(content: format!("{:.3}", prof.summary.mean))
-                        Text(content: format!("{:.3}", prof.summary.median))
-                        Text(content: format!("{:.3}", prof.summary.std_dev))
-                        Text(content: format!("{:.3}", prof.summary.min))
-                        Text(content: format!("{:.3}", prof.summary.max))
-                        Text(content: format!("{:.3}", prof.summary.range))
-                        Text(content: &prof.summary.histogram, color: Color::DarkGrey)
-                        Text(content: "------", color: Color::Black)
-                        #(props.refs.values().map(|refs| {
-                            refs.get(var.as_str()).map_or_else(|| {
-                                element! {
-                                    Text(content: "-----", color: Color::Black)
-                                }
-                            }, |val| {
-                                element! {
-                                    Text(content: format!("{:.3}", val))
-                                }
-                            })
-                        }))
-                    }
-                }))
-            }
-        }
-    }
-}
-
-impl<T> Row for T
-where
-    T: AsRowValue + Copy,
-{
-    fn columns() -> Vec<String> {
-        vec!["".into()]
-    }
-
-    fn values(&self) -> Vec<f32> {
-        vec![self.as_f32()]
-    }
-}
-
-// Can't do this as it would conflict
-// with the *possibility* of `From<f32>`
-// being implemented in the future for `Option<f32>`.
-// See <https://github.com/rust-lang/rfcs/issues/2758>
-// impl<T> AsRowValue for T
-// where
-//     T: Copy,
-//     f32: From<T>,
-// {
-//     fn as_f32(&self) -> f32 {
-//         f32::from(*self)
-//     }
-// }
-impl AsRowValue for f32 {
-    fn as_f32(&self) -> f32 {
-        *self
-    }
-}
-impl AsRowValue for Option<f32> {
-    fn as_f32(&self) -> f32 {
-        self.unwrap_or(f32::NAN)
-    }
-}
-impl AsRowValue for Option<u16> {
-    fn as_f32(&self) -> f32 {
-        self.map_or(f32::NAN, |val| val as f32)
-    }
-}
-impl<U: Unit> AsRowValue for U {
-    fn as_f32(&self) -> f32 {
-        self.value()
-    }
-}
-
-/// Macro for conveniently defining a [`Constraint`].
-// #[macro_export]
-// macro_rules! constraint {
-//     (>$val: expr) => {
-//         $crate::draw::Constraint::LowerBound($val)
-//     };
-//     (>=$val: expr) => {
-//         $crate::draw::Constraint::LowerBoundInclusive($val)
-//     };
-//     (<$val: expr) => {
-//         $crate::draw::Constraint::UpperBound($val)
-//     };
-//     (<=$val: expr) => {
-//         $crate::draw::Constraint::UpperBoundInclusive($val)
-//     };
-//     ($val_a: expr => $val_b: expr) => {
-//         $crate::draw::Constraint::RangeInclusive($val_a, $val_b)
-//     }; // ($val_a: expr => $val_b: expr) => {
-//        //     $crate::draw::Constraint::Range($val_a, $val_b)
-//        // };
-// }
-
-#[derive(Default, Props)]
-struct LogTableProps {
-    name: &'static str,
-    logs: HashMap<&'static str, usize>,
-}
-
-#[component]
-fn LogTable<'a>(props: &LogTableProps) -> impl Into<AnyElement<'a>> {
-    element! {
-        Box(
-            flex_direction: FlexDirection::Column,
-            margin_top: 1,
-            margin_bottom: 1,
-            border_style: BorderStyle::Single,
-            border_color: Color::Black,
-        ) {
-            Box(
-                flex_direction: FlexDirection::Row,
-                width: Size::Auto,
-                justify_content: JustifyContent::SpaceBetween,
-                column_gap: Gap::Length(2),
-                margin_bottom: 1,
-                margin_left: 1,
-                margin_right: 1,
-            ) {
-                Text(content: props.name, weight: Weight::Bold)
-                Text(content: "logged issues")
-            }
-            Box(
-                flex_direction: FlexDirection::Row,
-                width: Size::Auto,
-            ) {
-                Box(flex_direction: FlexDirection::Column, align_items: AlignItems::End, padding_left: 1, padding_right: 1) {
-                    Text(content: "Problem", weight: Weight::Bold)
-                    #(props.logs.iter().map(|(problem, count)| element! {
-                        Text(content: *problem, decoration: TextDecoration::Underline)
-                    }))
-                }
-                Box(flex_direction: FlexDirection::Column, align_items: AlignItems::End, padding_left: 1, padding_right: 1) {
-                    Text(content: "Count", weight: Weight::Bold)
-                    #(props.logs.iter().map(|(problem, count)| element! {
-                        Text(content: format!("{}", count))
-                    }))
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use gremlin_macros::{Partial, Row};
+
+    use crate::data::AsRowValue;
 
     use super::*;
 
@@ -665,7 +277,7 @@ mod tests {
             field_c: f32,
         }
         impl Constrained for Target {
-            fn id() -> String {
+            fn id(&self) -> String {
                 String::new()
             }
 
@@ -729,7 +341,7 @@ mod tests {
 
         // Fail strict as `field_c` is not filled.
         let river = River {
-            source: RBox::new(x_set.clone()),
+            source: Box::new(x_set.clone()),
             tributaries: vec![],
             strictness: Strictness::Strict,
         };
@@ -738,7 +350,7 @@ mod tests {
 
         // Succeeds, but no results as `field_c` is not filled.
         let river = River {
-            source: RBox::new(x_set.clone()),
+            source: Box::new(x_set.clone()),
             tributaries: vec![],
             strictness: Strictness::IgnoreAll,
         };
@@ -747,8 +359,8 @@ mod tests {
 
         // Fails, as we have an invalid `field_a` value.
         let river = River {
-            source: RBox::new(x_set.clone()),
-            tributaries: vec![RBox::new(y_set.clone())],
+            source: Box::new(x_set.clone()),
+            tributaries: vec![Box::new(y_set.clone())],
             strictness: Strictness::Strict,
         };
         let res = river.run(None);
@@ -756,8 +368,8 @@ mod tests {
 
         // Succeeds, but only results in one item, as the other has an invalid `field_a` value.
         let river = River {
-            source: RBox::new(x_set.clone()),
-            tributaries: vec![RBox::new(y_set.clone())],
+            source: Box::new(x_set.clone()),
+            tributaries: vec![Box::new(y_set.clone())],
             strictness: Strictness::IgnoreAll,
         };
         let res = river.run(None).unwrap();
@@ -766,8 +378,8 @@ mod tests {
         // Set to valid value.
         x_set[1].field_a = 5.;
         let river = River {
-            source: RBox::new(x_set),
-            tributaries: vec![RBox::new(y_set)],
+            source: Box::new(x_set),
+            tributaries: vec![Box::new(y_set)],
             strictness: Strictness::IgnoreAll,
         };
         let res = river.run(None).unwrap();

@@ -1,13 +1,18 @@
 //! Data processing helpers.
 
 mod cache;
+mod constrain;
 mod datamap;
+mod dataset;
+mod display;
+mod facet;
 pub mod geotime;
 mod helpers;
+mod imperfect;
 mod iterator;
-mod logger;
 mod partial;
 pub mod profile;
+mod reference;
 mod river;
 mod series;
 
@@ -20,11 +25,15 @@ pub mod impute;
 pub use impute::*;
 
 pub use cache::*;
+pub use constrain::*;
 pub use datamap::*;
+pub use dataset::*;
+pub use facet::*;
 pub use helpers::*;
+pub use imperfect::*;
 pub use iterator::*;
-pub use logger::*;
 pub use partial::*;
+pub use reference::*;
 pub use river::*;
 pub use series::*;
 
