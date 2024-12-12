@@ -40,7 +40,7 @@ use crate::data::display::CountTable;
 use super::{
     constrain::{Constrained, InvalidValue},
     partial::FromPartial,
-    Dataset, Imperfect, Row,
+    DataProfile, Dataset, Imperfect, Row,
 };
 
 /// Define the river's strictness.
@@ -63,6 +63,16 @@ pub enum Strictness {
 
     /// Only ignore incomplete items.
     IgnoreIncomplete,
+}
+
+macro_rules! profile {
+    ($dir:ident, $step:ident, $name:expr, $profiles:expr) => {
+        $dir.as_ref().map(|path| {
+            let prefix = format!("{:0>2}", $step);
+            write_profiles_to_csv(path, prefix, $name, $profiles);
+            $step += 1;
+        });
+    };
 }
 
 /// A `River` is a pipeline for producing a set of items of type `T`.
@@ -88,20 +98,34 @@ impl<T: FromPartial + Constrained + Row> River<T>
 where
     T::Partial: Row,
 {
-    pub fn run(&self, log_path: Option<&Path>) -> Result<Vec<T>, HydrateError> {
+    pub fn run(&self, log_dir: Option<&Path>) -> Result<Vec<T>, HydrateError> {
+        let mut step = 0;
+
         let mut buffer = Vec::new();
 
+        if let Some(dir) = &log_dir {
+            if !dir.exists() {
+                fs_err::create_dir_all(dir)?;
+            }
+        }
+
         // Generate initial items.
-        writeln!(buffer, "{}", self.source.inspect_data())?;
+        profile!(
+            log_dir,
+            step,
+            self.source.name(),
+            self.source.inspect_data()
+        );
         let mut items = self.source.generate()?;
         writeln!(buffer, "{}", self.source.inspect_logs())?;
-        writeln!(buffer, "{}", Dataset::inspect(&items))?;
+
+        profile!(log_dir, step, Dataset::name(&items), items.profile());
 
         // Fill in (hydrate) items.
         for tributary in &self.tributaries {
-            writeln!(buffer, "{}", tributary.inspect_data())?;
+            profile!(log_dir, step, tributary.name(), tributary.inspect_data());
             tributary.fill(&mut items)?;
-            writeln!(buffer, "{}", Dataset::inspect(&items))?;
+            profile!(log_dir, step, Dataset::name(&items), items.profile());
             writeln!(buffer, "{}", tributary.inspect_logs())?;
             // writeln!(buffer, "{}", T::collect_logs())?; // TODO
         }
@@ -176,15 +200,48 @@ where
             }
         }
 
-        writeln!(buffer, "{}", Dataset::inspect(&items))?;
+        profile!(log_dir, step, Dataset::name(&items), items.profile());
 
-        if let Some(path) = log_path {
-            let mut file = File::create(path)?;
-            file.write_all(&buffer)?;
-        }
+        // if let Some(path) = log_path {
+        //     let mut file = File::create(path)?;
+        //     file.write_all(&buffer)?;
+        // }
 
         Ok(items)
     }
+}
+
+fn write_profiles_to_csv(
+    dir: &Path,
+    prefix: String,
+    name: String,
+    profiles: BTreeMap<Option<String>, DataProfile>,
+) {
+    let fname = format!("{prefix}.{}.csvs", name);
+    let fpath = dir.join(fname);
+    let file = fs_err::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open(fpath)
+        .unwrap();
+    let mut wtr = csv::Writer::from_writer(file);
+    for (facet, profile) in profiles.iter() {
+        let records = profile.as_csv();
+        if records.is_empty() {
+            continue;
+        }
+
+        let n_cols = records[0].len();
+        let facet = facet.as_ref().map_or("All", |f| f.as_str());
+        let mut csv_divider = vec!["#".to_string(); n_cols];
+        csv_divider[0] = format!("#>{}", facet);
+        wtr.write_record(csv_divider).unwrap();
+        for row in records {
+            wtr.write_record(row).unwrap();
+        }
+    }
+    wtr.flush().unwrap();
 }
 
 /// Any step in the data refinement pipeline,
@@ -195,15 +252,20 @@ where
 /// directly; instead you should implement [`Dataset`]
 /// and [`Imperfect`]
 trait DataStep {
-    fn inspect_data(&self) -> String;
+    fn name(&self) -> String;
+    fn inspect_data(&self) -> BTreeMap<Option<String>, DataProfile>;
     fn inspect_logs(&self) -> String;
 }
 impl<T: Dataset + Imperfect> DataStep for T
 where
     for<'a> &'static str: From<&'a <T as Imperfect>::Warning>,
 {
-    fn inspect_data(&self) -> String {
-        Dataset::inspect(self)
+    fn name(&self) -> String {
+        Dataset::name(self)
+    }
+
+    fn inspect_data(&self) -> BTreeMap<Option<String>, DataProfile> {
+        Dataset::profile(self)
     }
 
     fn inspect_logs(&self) -> String {

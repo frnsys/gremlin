@@ -88,6 +88,15 @@ impl<U: Unit> AsRowValue for Option<U> {
 impl<R: Row> Dataset for Vec<R> {
     type Row = R;
     type Facet = String;
+
+    fn name(&self) -> String {
+        std::any::type_name::<Self::Row>()
+            .split("::")
+            .last()
+            .unwrap()
+            .to_string()
+    }
+
     fn rows(&self) -> impl Iterator<Item = &R> {
         self.iter()
     }
@@ -102,11 +111,20 @@ macro_rules! non_dataset {
             // implement dataset
             type Row = ();
             type Facet = String;
+            fn name(&self) -> String {
+                std::any::type_name::<$t>()
+                    .split("::")
+                    .last()
+                    .unwrap()
+                    .to_string()
+            }
             fn rows(&self) -> impl Iterator<Item = &Self::Row> {
                 std::iter::empty()
             }
-            fn inspect(&self) -> String {
-                String::new()
+            fn profile(
+                &self,
+            ) -> std::collections::BTreeMap<Option<String>, $crate::data::DataProfile> {
+                std::collections::BTreeMap::default()
             }
         }
     };
@@ -115,6 +133,14 @@ macro_rules! non_dataset {
 pub trait Dataset {
     type Row: Row;
     type Facet: Facet + 'static;
+
+    fn name(&self) -> String {
+        std::any::type_name::<Self>()
+            .split("::")
+            .last()
+            .unwrap()
+            .to_string()
+    }
 
     fn rows(&self) -> impl Iterator<Item = &Self::Row>;
 
@@ -129,8 +155,8 @@ pub trait Dataset {
         vec![]
     }
 
-    /// Print table describing the rows in this dataset.
-    fn inspect(&self) -> String {
+    /// Return profiles describing the rows in this dataset, by facet.
+    fn profile(&self) -> BTreeMap<Option<String>, DataProfile> {
         let cols = Self::Row::columns();
         let mut facet_profiles = BTreeMap::default();
 
@@ -170,11 +196,9 @@ pub trait Dataset {
             );
         }
 
-        let name = std::any::type_name::<Self::Row>()
-            .split("::")
-            .last()
-            .unwrap();
-        element!(FacetedVarTables(name, profiles: facet_profiles)).to_string()
+        facet_profiles
+
+        // element!(FacetedVarTables(name: self.name(), profiles: facet_profiles)).to_string()
     }
 }
 
@@ -187,6 +211,78 @@ pub struct DataProfile {
     pub profiles: BTreeMap<String, VarProfile>,
 
     pub refs: BTreeMap<String, BTreeMap<String, f32>>,
+}
+impl DataProfile {
+    pub fn as_csv(&self) -> Vec<Vec<String>> {
+        let metrics = &[
+            "",
+            "Missing",
+            "Distinct",
+            "Duplicate",
+            "Zero",
+            "Negative",
+            "Infinite",
+            "Outliers",
+            "Mean",
+            "Median",
+            "Std Dev",
+            "Min",
+            "Max",
+            "Range",
+            "Dist",
+            "------",
+        ];
+        let mut rows = vec![];
+        let mut headers = vec!["".to_string()];
+        for (var, prof) in &self.profiles {
+            headers.push(var.to_string());
+            rows.push(vec![
+                format!("{}", prof.missing.count),
+                format!("{}", prof.distinct.count),
+                format!("{}", prof.duplicate.count),
+                format!("{}", prof.zero.count),
+                format!("{}", prof.negative.count),
+                format!("{}", prof.infinite.count),
+                format!("{}", prof.summary.outliers.count),
+                format!("{:.3}", prof.summary.mean),
+                format!("{:.3}", prof.summary.median),
+                format!("{:.3}", prof.summary.std_dev),
+                format!("{:.3}", prof.summary.min),
+                format!("{:.3}", prof.summary.max),
+                format!("{:.3}", prof.summary.range),
+                prof.summary.histogram.clone(),
+                "------".to_string(),
+            ]);
+        }
+
+        // TODO  references
+
+        // Transpose the rows.
+        let n_cols = metrics.len() - 1;
+        let n_rows = rows.len();
+        let mut rows: Vec<Vec<_>> = (0..n_cols)
+            .map(|col| (0..n_rows).map(|row| rows[row][col].clone()).collect())
+            .collect();
+
+        for (i, row) in rows.iter_mut().enumerate() {
+            row.insert(0, metrics[i + 1].to_string());
+        }
+        let mut records = vec![headers];
+        records.extend(rows);
+
+        for (source, values) in &self.refs {
+            let mut row = vec![source.to_string()];
+            let values = self.profiles.keys().map(|var| {
+                values
+                    .get(var)
+                    .map_or_else(|| "----".to_string(), |value| value.to_string())
+            });
+            row.extend(values);
+            records.push(row);
+        }
+
+        records
+    }
 }
 
 fn build_var_profile<'a, R: Row + 'a>(
