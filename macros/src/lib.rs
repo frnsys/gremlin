@@ -94,13 +94,14 @@ fn is_vec_type(ty: &Type) -> bool {
     }
 }
 
-#[proc_macro_derive(Row, attributes(row))]
+#[proc_macro_derive(Row, attributes(row, facet))]
 pub fn derive_row(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let struct_name = input.ident;
 
     let mut columns = Vec::new();
     let mut values = Vec::new();
+    let mut facet = quote! { String::new() };
 
     if let Data::Struct(data_struct) = input.data {
         if let Fields::Named(fields) = data_struct.fields {
@@ -127,6 +128,12 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
                         <#field_type as Row>::values(&self.#field_name)
                     });
                 }
+
+                // Check for #[facet] attribute
+                let is_facet_field = field.attrs.iter().any(|attr| attr.path.is_ident("facet"));
+                if is_facet_field {
+                    facet = quote! { self.#field_name.to_string() };
+                }
             }
         }
     }
@@ -145,6 +152,10 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
                 #(std::iter::Extend::extend(&mut vals, #values);)*
                 vals
             }
+
+            fn facet(&self) -> String {
+                #facet
+            }
         }
     };
 
@@ -162,6 +173,8 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     let partial_ident = syn::Ident::new(&partial_name, name.span()); // Create an identifier for the new name
 
     let mut derive_partial_row = false;
+    let mut derive_partial_constrained = false;
+    let mut derive_from_default = false;
     for attr in &input.attrs {
         if attr.path.is_ident("partial") {
             if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
@@ -169,6 +182,10 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                     if let NestedMeta::Meta(Meta::Path(path)) = nested {
                         if path.is_ident("row") {
                             derive_partial_row = true;
+                        } else if path.is_ident("constrained") {
+                            derive_partial_constrained = true;
+                        } else if path.is_ident("from_default") {
+                            derive_from_default = true;
                         }
                     }
                 }
@@ -179,19 +196,45 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     let mut field_names = vec![];
     let mut field_idents = vec![];
     let mut field_types = vec![];
+    let mut field_take_idents = vec![];
     let mut field_partial_to_full = vec![];
     let mut field_full_to_partial = vec![];
+    let mut field_partial_to_full_unwrap = vec![];
     let mut row_fields = vec![];
+    let mut field_constraints = vec![];
+    let mut facet = quote! { String::new() };
     if let Data::Struct(data) = &input.data {
         if let Fields::Named(fields) = &data.fields {
             for f in &fields.named {
                 let name = f.ident.as_ref().unwrap().to_string();
                 let ident = f.ident.as_ref().unwrap();
+                let take_ident = syn::Ident::new(&format!("take_{}", ident), ident.span());
                 let mut new_ty = f.ty.clone();
 
                 let is_row_field = f.attrs.iter().any(|attr| attr.path.is_ident("row"));
                 if is_row_field {
                     row_fields.push(ident);
+                }
+
+                if derive_partial_constrained {
+                    let mut constraints: Vec<_> = f
+                        .attrs
+                        .iter()
+                        .filter(|attr| attr.path.is_ident("constraint"))
+                        .map(|attr| attr.to_token_stream())
+                        .collect();
+                    if !constraints.is_empty() {
+                        constraints.push(quote! { #[constraint(allow_none)] });
+                    }
+                    field_constraints.push(constraints);
+                } else {
+                    field_constraints.push(vec![]);
+                }
+
+                // Here we know the field will always be an `Option`.
+                let is_facet_field = f.attrs.iter().any(|attr| attr.path.is_ident("facet"));
+                if is_facet_field {
+                    facet = quote! { self.#ident.map(|f| f.to_string()).unwrap_or_default() };
                 }
 
                 // Handle `#[partial]` attribute.
@@ -200,6 +243,11 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                     if let Type::Path(TypePath { path, .. }) = &new_ty {
                         if path.segments.len() == 1 && path.segments[0].ident == "Vec" {
                             // The field is of type Vec<T>
+                            // WARN: Note that you must implement `From<PartialT> for T`
+                            // for this to work!
+                            // One way to do this is to implement `Default for T`
+                            // and then use `#[partial(from_default)]`
+                            // when deriving `Partial` for `T`.
                             let segment = &path.segments[0].arguments;
                             if let syn::PathArguments::AngleBracketed(args) = segment {
                                 if let Some(syn::GenericArgument::Type(inner_ty)) =
@@ -226,12 +274,26 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 let partial_to_full = if is_vec_type(&new_ty) {
                     // If it's a Vec, generate code for map(Into::into)
                     quote! {
-                        partial.#ident.unwrap().into_iter().map(Into::into).collect()
+                        partial.#take_ident()?.into_iter().map(Into::into).collect()
                     }
                 } else {
                     // Otherwise, generate code for .into()
                     quote! {
-                        partial.#ident.unwrap().into()
+                        partial.#take_ident()?.into()
+                    }
+                };
+
+                let partial_to_full_unwrap = if is_vec_type(&new_ty) {
+                    // If it's a Vec, generate code for map(Into::into)
+                    quote! {
+                        // SAFETY: Checked that the field is Some.
+                        partial.#take_ident().unwrap().into_iter().map(Into::into).collect()
+                    }
+                } else {
+                    // Otherwise, generate code for .into()
+                    quote! {
+                        // SAFETY: Checked that the field is Some.
+                        partial.#take_ident().unwrap().into()
                     }
                 };
 
@@ -251,8 +313,10 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 field_names.push(name);
                 field_idents.push(ident);
                 field_types.push(new_ty);
+                field_take_idents.push(take_ident);
                 field_partial_to_full.push(partial_to_full);
                 field_full_to_partial.push(full_to_partial);
+                field_partial_to_full_unwrap.push(partial_to_full_unwrap);
             }
         } else {
             panic!("PartialStruct macro only supports named fields.");
@@ -271,6 +335,30 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 fn values(&self) -> Vec<f32> {
                     vec![#(self.#row_fields.map_or(f32::NAN, |val| val.as_f32()),)*]
                 }
+
+                fn facet(&self) -> String {
+                    #facet
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let constrained_derive = if derive_partial_constrained {
+        quote! { Constrained, }
+    } else {
+        quote! {}
+    };
+
+    let from_default_impl = if derive_from_default {
+        quote! {
+            impl From<#partial_ident> for #name {
+                fn from(partial: #partial_ident) -> Self {
+                    let mut default = Self::default();
+                    default.apply(partial);
+                    default
+                }
             }
         }
     } else {
@@ -278,18 +366,34 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
-        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, #constrained_derive)]
         pub struct #partial_ident {
-            #(pub #field_idents: std::option::Option<#field_types>,)*
+            #(#(#field_constraints)*
+              pub #field_idents: std::option::Option<#field_types>,)*
         }
 
         impl #partial_ident {
             #(pub fn #field_idents(&self) -> Result<&#field_types, HydrateError> {
                 self.#field_idents.as_ref().ok_or(HydrateError::MissingExpectedField(stringify!(#name), stringify!(#field_idents)))
             })*
+
+            #(pub fn #field_take_idents(&mut self) -> Result<#field_types, HydrateError> {
+                self.#field_idents.take().ok_or(HydrateError::MissingExpectedField(stringify!(#name), stringify!(#field_idents)))
+            })*
+        }
+
+        impl gremlin::data::Partial for #partial_ident {
+            fn missing_fields(&self) -> Vec<&'static str> {
+                let mut missing = vec![];
+                #(if self.#field_idents.is_none() {
+                    missing.push(stringify!(#field_idents));
+                })*
+                missing
+            }
         }
 
         #row_impl
+        #from_default_impl
 
         impl Default for #partial_ident {
             fn default() -> Self {
@@ -299,11 +403,6 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl From<#partial_ident> for #name {
-            fn from(value: #partial_ident) -> Self {
-                <Self as FromPartial>::from_default(value)
-            }
-        }
         impl From<#name> for #partial_ident {
             fn from(full: #name) -> Self {
                 let mut partial = Self::default();
@@ -317,7 +416,7 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
         impl FromPartial for #name {
             type Partial = #partial_ident;
 
-            fn from(partial: Self::Partial) -> Result<Self, HydrateError> {
+            fn from(mut partial: Self::Partial) -> Result<Self, HydrateError> {
                 let mut missing_fields = Vec::new();
 
                 #(
@@ -335,18 +434,12 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 })
             }
 
-            fn apply(&mut self, partial: Self::Partial) {
+            fn apply(&mut self, mut partial: Self::Partial) {
                 #(
                     if partial.#field_idents.is_some() {
-                        self.#field_idents = #field_partial_to_full;
+                        self.#field_idents = #field_partial_to_full_unwrap;
                     }
                 )*
-            }
-
-            fn from_default(partial: Self::Partial) -> Self {
-                let mut default = Self::default();
-                default.apply(partial);
-                default
             }
         }
     };
@@ -513,4 +606,166 @@ pub fn has_variants_derive(input: TokenStream) -> TokenStream {
     };
 
     gen.into()
+}
+
+#[proc_macro_derive(Constrained, attributes(constraint, constrained))]
+pub fn derive_constrained(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let struct_name = &input.ident;
+
+    let fields = match input.data {
+        syn::Data::Struct(data) => data.fields,
+        _ => panic!("Constrained can only be derived for structs"),
+    };
+
+    let mut field_validations = vec![];
+
+    for field in fields {
+        let field_name = field.ident.unwrap();
+        let mut constraints = vec![];
+
+        // TODO: This can be handled better;
+        // the problem is basically:
+        // when deriving a `Partial` type
+        // all the fields become e.g. `Option<f32>`
+        // instead of `f32`, and we want to allow
+        // `None` values as "valid" because there isn't
+        // yet any value to check.
+        // As implemented now, the presence of
+        // `#[constrain(allow_none)]` will do this,
+        // and assumes that the field is in fact `Option<f32>`.
+        let mut allow_none = false;
+        for attr in &field.attrs {
+            if attr.path.is_ident("constraint") {
+                if let Ok(Meta::List(list)) = attr.parse_meta() {
+                    for nested in list.nested {
+                        match nested {
+                            NestedMeta::Meta(Meta::Path(path)) => {
+                                let name = path.get_ident().unwrap();
+                                if name.to_string() == "allow_none" {
+                                    allow_none = true;
+                                }
+                            }
+                            _ => (),
+                        }
+                    }
+                }
+            }
+        }
+
+        for attr in field.attrs {
+            if attr.path.is_ident("constraint") {
+                if let Ok(Meta::List(list)) = attr.parse_meta() {
+                    for nested in list.nested {
+                        match nested {
+                            NestedMeta::Meta(Meta::Path(path)) => {
+                                let function = path.get_ident().unwrap();
+
+                                // `allow_none` handled above.
+                                let name = path.get_ident().unwrap();
+                                if name == "allow_none" {
+                                    continue;
+                                }
+
+                                // Allow `None` values to pass.
+                                if allow_none {
+                                    field_validations.push(quote! {
+                                        if let Some(value) = &self.#field_name {
+                                            if !#function(value) {
+                                                errors.push(gremlin::data::Breach {
+                                                    field: stringify!(#field_name).to_string(),
+                                                    constraint: stringify!(#function).to_string(),
+                                                    value: value.to_string(),
+                                                })
+                                            }
+                                        }
+                                    });
+                                } else {
+                                    field_validations.push(quote! {
+                                        if !#function(&self.#field_name) {
+                                            errors.push(gremlin::data::Breach {
+                                                field: stringify!(#field_name).to_string(),
+                                                constraint: stringify!(#function).to_string(),
+                                                value: self.#field_name.to_string(),
+                                            })
+                                        }
+                                    });
+                                }
+                            }
+                            NestedMeta::Meta(Meta::NameValue(name_value)) => {
+                                let constraint = name_value.path.get_ident().unwrap();
+                                let value = name_value.lit;
+                                constraints.push(
+                                    quote! { gremlin::data::Constraint::#constraint(#value) },
+                                );
+                            }
+                            _ => (),
+                        }
+                    }
+                }
+            } else if attr.path.is_ident("constrained") {
+                // Allow `None` values to pass.
+                if allow_none {
+                    field_validations.push(quote! {
+                        if let Some(value) = &self.#field_name {
+                            for mut err in gremlin::data::Constrained::validate(value) {
+                                err.field = format!("{}.{}", stringify!(#field_name), err.field);
+                                errors.push(err);
+                            }
+                        }
+                    });
+                } else {
+                    field_validations.push(quote! {
+                        for mut err in gremlin::data::Constrained::validate(&self.#field_name) {
+                            err.field = format!("{}.{}", stringify!(#field_name), err.field);
+                            errors.push(err);
+                        }
+                    });
+                }
+            }
+        }
+
+        if !constraints.is_empty() {
+            // Allow `None` values to pass.
+            if allow_none {
+                field_validations.push(quote! {
+                    if let Some(value) = &self.#field_name {
+                        for c in [#(#constraints),*] {
+                            if !c.validate(f32::from(*value)) {
+                                errors.push(gremlin::data::Breach {
+                                    field: stringify!(#field_name).to_string(),
+                                    constraint: c.to_string(),
+                                    value: value.to_string(),
+                                })
+                            }
+                        }
+                    }
+                });
+            } else {
+                field_validations.push(quote! {
+                    for c in [#(#constraints),*] {
+                        if !c.validate(f32::from(self.#field_name)) {
+                            errors.push(gremlin::data::Breach {
+                                field: stringify!(#field_name).to_string(),
+                                constraint: c.to_string(),
+                                value: self.#field_name.to_string(),
+                            })
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    let expanded = quote! {
+        impl gremlin::data::Constrained for #struct_name {
+            fn validate(&self) -> Vec<gremlin::data::Breach> {
+                let mut errors = vec![];
+                #(#field_validations)*
+                errors
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
 }

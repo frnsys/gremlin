@@ -22,6 +22,15 @@ impl<F: Facet> Reference<F> {
             .filter_map(|facet| self.by_facet.get(facet).and_then(|vars| vars.get(var)))
             .collect()
     }
+
+    pub fn by_facet(&self) -> BTreeMap<Option<F>, BTreeMap<String, f32>> {
+        let mut by_facet: BTreeMap<Option<F>, BTreeMap<String, f32>> = BTreeMap::default();
+        by_facet.insert(None, self.aggregate.clone());
+        for (facet, vars) in &self.by_facet {
+            by_facet.insert(Some(facet.clone()), vars.clone());
+        }
+        by_facet
+    }
 }
 
 /// A trait that indicates a [`Reference`] can be used for a different [`Facet`]

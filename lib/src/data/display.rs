@@ -13,7 +13,7 @@ use super::DataProfile;
 pub(crate) struct CountTableProps {
     pub name: String,
     pub total: Option<usize>,
-    pub counts: BTreeMap<String, usize>,
+    pub counts: BTreeMap<String, isize>,
 }
 
 #[component]
@@ -72,7 +72,8 @@ pub(crate) fn CountTable<'a>(props: &CountTableProps) -> impl Into<AnyElement<'a
     }
 }
 
-const MAX_VARS_PER_TABLE: usize = 6;
+// May need to lower/raise this for smaller/larger screens.
+const MAX_VARS_PER_TABLE: usize = 4;
 
 #[derive(Default, Props)]
 pub(crate) struct VarTableProps {
@@ -82,7 +83,7 @@ pub(crate) struct VarTableProps {
 
 #[derive(Default, Props)]
 pub(crate) struct FacetedVarTablesProps {
-    pub name: &'static str,
+    pub name: String,
     pub profiles: BTreeMap<Option<String>, DataProfile>,
 }
 
@@ -120,7 +121,6 @@ fn VarTables<'a>(props: &VarTableProps) -> impl Into<AnyElement<'a>> {
             profile: DataProfile {
                 total: props.profile.total,
                 profiles: chunk.collect(),
-                refs: props.profile.refs.clone(),
             },
         })
         .collect();
@@ -179,9 +179,6 @@ fn VarTable<'a>(props: &VarTableProps) -> impl Into<AnyElement<'a>> {
                     Text(content: "Range", weight: Weight::Bold)
                     Text(content: "Dist", weight: Weight::Bold)
                     Text(content: "------", color: Color::Black)
-                    #(props.profile.refs.keys().map(|source| element! {
-                        Text(content: source)
-                    }))
                 }
 
                 #(props.profile.profiles.iter().map(|(var, prof)| element! {
@@ -206,17 +203,6 @@ fn VarTable<'a>(props: &VarTableProps) -> impl Into<AnyElement<'a>> {
                         Text(content: format!("{:.3}", prof.summary.range))
                         Text(content: &prof.summary.histogram, color: Color::DarkGrey)
                         Text(content: "------", color: Color::Black)
-                        #(props.profile.refs.values().map(|refs| {
-                            refs.get(var.as_str()).map_or_else(|| {
-                                element! {
-                                    Text(content: "--", color: Color::Black)
-                                }
-                            }, |val| {
-                                element! {
-                                    Text(content: format!("{:.3}", val))
-                                }
-                            })
-                        }))
                     }
                 }))
             }

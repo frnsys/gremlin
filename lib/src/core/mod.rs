@@ -73,6 +73,10 @@ where
             "23h".into(),
         ]
     }
+
+    fn facet(&self) -> String {
+        String::new()
+    }
 }
 
 /// An array with one element per hour of the year.

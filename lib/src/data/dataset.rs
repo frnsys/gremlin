@@ -6,7 +6,7 @@ use crate::{core::Unit, data::display::FacetedVarTables};
 
 use super::{
     profile::{profile, VarProfile},
-    Facet, RefForFacet,
+    ByFacet, ByField, Facet, Rows,
 };
 
 pub trait Row {
@@ -16,6 +16,9 @@ pub trait Row {
     /// The values for this row.
     /// They should align with the columns from `columns`.
     fn values(&self) -> Vec<f32>;
+
+    /// The facet for this row.
+    fn facet(&self) -> String;
 }
 
 impl Row for () {
@@ -25,6 +28,10 @@ impl Row for () {
 
     fn values(&self) -> Vec<f32> {
         vec![]
+    }
+
+    fn facet(&self) -> String {
+        String::new()
     }
 }
 
@@ -38,6 +45,10 @@ where
 
     fn values(&self) -> Vec<f32> {
         vec![self.as_f32()]
+    }
+
+    fn facet(&self) -> String {
+        String::new()
     }
 }
 
@@ -100,6 +111,11 @@ impl<R: Row> Dataset for Vec<R> {
     fn rows(&self) -> impl Iterator<Item = &R> {
         self.iter()
     }
+
+    fn faceted(&self) -> BTreeMap<Self::Facet, Vec<&Self::Row>> {
+        let hm = self.rows().group_by(|row| row.facet());
+        hm.into_iter().collect()
+    }
 }
 
 #[macro_export]
@@ -150,27 +166,16 @@ pub trait Dataset {
         BTreeMap::default()
     }
 
-    /// Optionally return references to compare this dataset to.
-    fn refs() -> Vec<Box<dyn RefForFacet<Self::Facet>>> {
-        vec![]
-    }
-
     /// Return profiles describing the rows in this dataset, by facet.
     fn profile(&self) -> BTreeMap<Option<String>, DataProfile> {
         let cols = Self::Row::columns();
         let mut facet_profiles = BTreeMap::default();
 
-        let refs = Self::refs();
         let rows: Vec<_> = self.rows().collect();
         facet_profiles.insert(
             None,
             DataProfile {
                 total: rows.len(),
-                refs: refs
-                    .iter()
-                    // TODO get rid of clones
-                    .map(|r| (r.source().to_string(), r.aggregate().clone()))
-                    .collect(),
                 profiles: build_var_profile(rows.into_iter(), &cols),
             },
         );
@@ -180,25 +185,24 @@ pub trait Dataset {
                 Some(facet.to_string()),
                 DataProfile {
                     total: rows.len(),
-                    refs: refs
-                        .iter()
-                        // TODO get rid of clones
-                        .flat_map(|r| {
-                            r.for_facet(&facet)
-                                .into_iter()
-                                .map(|(matched_facet, refs)| {
-                                    (format!("{}:{}", r.source(), matched_facet), refs.clone())
-                                })
-                        })
-                        .collect(),
                     profiles: build_var_profile(rows.into_iter(), &cols),
                 },
             );
         }
 
         facet_profiles
+    }
 
-        // element!(FacetedVarTables(name: self.name(), profiles: facet_profiles)).to_string()
+    fn var_profiles(&self) -> ByFacet<ByField<VarProfile>> {
+        self.profile()
+            .into_iter()
+            .map(|(facet, profile)| (facet, profile.profiles))
+            .collect()
+    }
+
+    fn display_profiles(&self) -> String {
+        let facet_profiles = self.profile();
+        element!(FacetedVarTables(name: self.name(), profiles: facet_profiles)).to_string()
     }
 }
 
@@ -209,8 +213,6 @@ pub struct DataProfile {
 
     /// Profiles for each variable.
     pub profiles: BTreeMap<String, VarProfile>,
-
-    pub refs: BTreeMap<String, BTreeMap<String, f32>>,
 }
 impl DataProfile {
     pub fn as_csv(&self) -> Vec<Vec<String>> {
@@ -269,17 +271,6 @@ impl DataProfile {
         }
         let mut records = vec![headers];
         records.extend(rows);
-
-        for (source, values) in &self.refs {
-            let mut row = vec![source.to_string()];
-            let values = self.profiles.keys().map(|var| {
-                values
-                    .get(var)
-                    .map_or_else(|| "----".to_string(), |value| value.to_string())
-            });
-            row.extend(values);
-            records.push(row);
-        }
 
         records
     }

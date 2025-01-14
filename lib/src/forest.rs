@@ -8,6 +8,20 @@ use smartcore::{
 use std::{collections::HashMap, path::Path};
 use thiserror::Error;
 
+// Hacky way to serialize data to a DataFrame
+pub fn as_df<T: Serialize>(items: &[T]) -> DataFrame {
+    let mut buf = vec![];
+    {
+        let mut w = csv::Writer::from_writer(&mut buf);
+        for item in items {
+            w.serialize(item).unwrap();
+        }
+        w.flush().unwrap();
+    }
+    let reader = CsvReader::new(std::io::Cursor::new(buf));
+    reader.has_header(true).finish().unwrap()
+}
+
 #[derive(Debug, Error)]
 pub enum ForestError {
     #[error("Polars error: {0}")]

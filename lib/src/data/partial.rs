@@ -8,16 +8,16 @@ use super::river::HydrateError;
 ///
 /// You should not implement
 /// this trait yourself but instead use the [`Partial` derive macro](../../infra_macros/derive.Partial.html).
-pub trait FromPartial: Sized + Default {
-    type Partial;
+pub trait FromPartial: Sized {
+    type Partial: Partial;
 
     /// Create this struct from a fully-hydrated partial version.
     fn from(partial: Self::Partial) -> Result<Self, HydrateError>;
 
     /// Apply a partial to this struct.
     fn apply(&mut self, partial: Self::Partial);
+}
 
-    /// Create this struct from a default instance,
-    /// and applying the partial.
-    fn from_default(partial: Self::Partial) -> Self;
+pub trait Partial {
+    fn missing_fields(&self) -> Vec<&'static str>;
 }

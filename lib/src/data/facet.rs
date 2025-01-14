@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-pub trait Facet: Display + Ord {
+pub trait Facet: Display + Ord + Clone {
     // This is just a more convenient way to
     // convert to a different facet using generics;
     // e.g. `f.to_facet::<OtherFacet>`.
@@ -8,7 +8,7 @@ pub trait Facet: Display + Ord {
     where
         Self: AsFacet<F>;
 }
-impl<T: Display + Ord> Facet for T {
+impl<T: Display + Ord + Clone> Facet for T {
     fn to_facet<F: Facet>(&self) -> Vec<F>
     where
         Self: AsFacet<F>,

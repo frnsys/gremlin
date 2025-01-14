@@ -1,6 +1,7 @@
 //! Data processing helpers.
 
 mod cache;
+pub mod compare;
 mod constrain;
 mod datamap;
 mod dataset;
@@ -13,6 +14,7 @@ mod iterator;
 mod partial;
 pub mod profile;
 mod reference;
+mod report;
 mod river;
 mod series;
 

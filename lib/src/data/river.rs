@@ -29,7 +29,6 @@
 //! where problematic values may be coming from. For hard failures instead look to [`Constrained`].
 
 use anyhow::Error as AnyhowError;
-use fs_err::File;
 use iocraft::{element, ElementExt};
 use itertools::Itertools;
 use std::{collections::BTreeMap, fmt::Debug, io::Write, path::Path};
@@ -37,9 +36,12 @@ use thiserror::Error;
 
 use crate::data::display::CountTable;
 
+pub use super::report::rows_html;
 use super::{
-    constrain::{Constrained, InvalidValue},
-    partial::FromPartial,
+    constrain::{Breach, Constrained},
+    partial::{FromPartial, Partial},
+    profile::VarProfile,
+    report::{Diff, RiverReport},
     DataProfile, Dataset, Imperfect, Row,
 };
 
@@ -49,7 +51,7 @@ use super::{
 ///   as defined by the [`Constrained`] implementation.
 /// * _Incomplete_ items are those that haven't been fully hydrated,
 ///   i.e. the [`Partial`] has missing values.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 pub enum Strictness {
     /// Produce an error if any invalid or incomplete items are found.
     #[default]
@@ -63,6 +65,16 @@ pub enum Strictness {
 
     /// Only ignore incomplete items.
     IgnoreIncomplete,
+}
+impl std::fmt::Display for Strictness {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Self::Strict => "Strict",
+            Self::IgnoreAll => "IgnoreAll: Invalid or incomplete items are skipped.",
+            Self::IgnoreInvalid => "IgnoreInvalid: Invalid items are skipped; incomplete items have missing values imputed.",
+            Self::IgnoreIncomplete => "IgnoreIncomplete: Incomplete items are skipped; invalid items are kept.",
+        })
+    }
 }
 
 macro_rules! profile {
@@ -82,6 +94,9 @@ pub struct River<T: FromPartial + Constrained + Row>
 where
     T::Partial: Row,
 {
+    /// A name used to identify this river.
+    pub name: String,
+
     /// The [`Source`] produces the initial partial versions of `T`.
     pub source: Box<dyn Source<T>>,
 
@@ -93,12 +108,64 @@ where
 
     /// Define the river's behavior when encountering incomplete or invalid items.
     pub strictness: Strictness,
+
+    pub references: VarReferences,
 }
+
+type BySourceFacet<T> = BTreeMap<Option<String>, T>;
+pub type BySource<T> = BTreeMap<String, T>;
+pub type ByFacet<T> = BTreeMap<Option<String>, T>;
+pub type ByField<T> = BTreeMap<String, T>;
+pub type ByConstraint<T> = BTreeMap<String, T>;
+pub type VarReferences = BySource<ByFacet<BySourceFacet<ByField<f32>>>>;
+pub type FacetVarReferences = BySource<BySourceFacet<ByField<f32>>>;
+
+#[derive(Clone)]
+pub struct StepResult {
+    pub num: usize,
+    pub name: String,
+    pub inputs: ByFacet<ByField<VarProfile>>,
+    pub outputs: Diff<ByFacet<ByField<VarProfile>>>,
+    pub invalid: ByField<ByConstraint<Diff<isize>>>,
+    pub incomplete: Diff<isize>,
+}
+impl StepResult {
+    fn new(
+        num: usize,
+        name: String,
+        inputs: ByFacet<ByField<VarProfile>>,
+        outputs: Diff<ByFacet<ByField<VarProfile>>>,
+        invalid: Diff<Vec<Breach>>,
+        incomplete: Diff<isize>,
+    ) -> Self {
+        let invalid = invalid.by_constraint();
+
+        StepResult {
+            num,
+            name,
+            inputs,
+            outputs,
+            incomplete,
+            invalid,
+        }
+    }
+}
+
 impl<T: FromPartial + Constrained + Row> River<T>
 where
-    T::Partial: Row,
+    T::Partial: Row + Constrained,
 {
-    pub fn run(&self, log_dir: Option<&Path>) -> Result<Vec<T>, HydrateError> {
+    pub fn run(&self, log_dir: Option<&Path>) -> Result<(Vec<T>, RiverReport), HydrateError> {
+        let mut inputs = vec![self.source.name()];
+        inputs.extend(self.tributaries.iter().map(|t| t.name()));
+        let mut report = RiverReport {
+            name: self.name.clone(),
+            strictness: self.strictness,
+            tributaries: inputs,
+            references: self.references.clone(),
+            ..Default::default()
+        };
+
         let mut step = 0;
 
         let mut buffer = Vec::new();
@@ -119,14 +186,51 @@ where
         let mut items = self.source.generate()?;
         writeln!(buffer, "{}", self.source.inspect_logs())?;
 
+        let mut incomplete: Diff<isize> = Diff::default();
+        incomplete.current = items
+            .iter()
+            .filter(|item| !item.missing_fields().is_empty())
+            .count() as isize;
+        let mut invalid: Diff<Vec<Breach>> =
+            Diff::new(items.iter().flat_map(|item| item.validate()).collect());
+        let mut var_profiles = Diff::new(items.var_profiles());
+
+        report.play_by_play.push(StepResult::new(
+            0,
+            self.source.name(),
+            self.source.inspect_vars(),
+            var_profiles.clone(),
+            invalid.clone(),
+            incomplete.clone(),
+        ));
+
         profile!(log_dir, step, Dataset::name(&items), items.profile());
 
         // Fill in (hydrate) items.
-        for tributary in &self.tributaries {
+        for (i, tributary) in self.tributaries.iter().enumerate() {
             profile!(log_dir, step, tributary.name(), tributary.inspect_data());
             tributary.fill(&mut items)?;
             profile!(log_dir, step, Dataset::name(&items), items.profile());
             writeln!(buffer, "{}", tributary.inspect_logs())?;
+
+            incomplete.update(
+                items
+                    .iter()
+                    .filter(|item| !item.missing_fields().is_empty())
+                    .count() as isize,
+            );
+            invalid.update(items.iter().flat_map(|item| item.validate()).collect());
+
+            var_profiles.update(items.var_profiles());
+            report.play_by_play.push(StepResult::new(
+                i + 1,
+                tributary.name(),
+                tributary.inspect_vars(),
+                var_profiles.clone(),
+                invalid.clone(),
+                incomplete.clone(),
+            ));
+
             // writeln!(buffer, "{}", T::collect_logs())?; // TODO
         }
 
@@ -141,7 +245,7 @@ where
         let (items, incomplete): (Vec<_>, Vec<_>) = items.partition_result();
 
         if !incomplete.is_empty() {
-            let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
+            let mut error_counts: BTreeMap<String, isize> = BTreeMap::default();
             for err in incomplete.iter() {
                 if let HydrateError::EmptyFields(_, fields) = err {
                     for field in fields {
@@ -161,6 +265,7 @@ where
                 tracing::error!("{} incomplete items.", incomplete.len());
                 return Err(HydrateError::Many(incomplete));
             }
+            report.n_incomplete = incomplete.len();
         }
 
         // Check for invalid items.
@@ -179,7 +284,7 @@ where
         let (items, invalid): (Vec<_>, Vec<_>) = items.partition_result();
 
         if !invalid.is_empty() {
-            let mut error_counts: BTreeMap<String, usize> = BTreeMap::default();
+            let mut error_counts: BTreeMap<String, isize> = BTreeMap::default();
             for err in invalid.iter() {
                 if let HydrateError::InvalidValues(values) = err {
                     for value in values {
@@ -198,6 +303,7 @@ where
                 tracing::error!("{} invalid items.", invalid.len());
                 return Err(HydrateError::Many(invalid));
             }
+            report.n_invalid = invalid.len();
         }
 
         profile!(log_dir, step, Dataset::name(&items), items.profile());
@@ -207,7 +313,7 @@ where
         //     file.write_all(&buffer)?;
         // }
 
-        Ok(items)
+        Ok((items, report))
     }
 }
 
@@ -251,9 +357,10 @@ fn write_profiles_to_csv(
 /// However you do not need to implement this trait
 /// directly; instead you should implement [`Dataset`]
 /// and [`Imperfect`]
-trait DataStep {
+pub trait DataStep {
     fn name(&self) -> String;
-    fn inspect_data(&self) -> BTreeMap<Option<String>, DataProfile>;
+    fn inspect_data(&self) -> ByFacet<DataProfile>;
+    fn inspect_vars(&self) -> ByFacet<ByField<VarProfile>>;
     fn inspect_logs(&self) -> String;
 }
 impl<T: Dataset + Imperfect> DataStep for T
@@ -264,14 +371,18 @@ where
         Dataset::name(self)
     }
 
-    fn inspect_data(&self) -> BTreeMap<Option<String>, DataProfile> {
+    fn inspect_data(&self) -> ByFacet<DataProfile> {
         Dataset::profile(self)
     }
 
+    fn inspect_vars(&self) -> ByFacet<ByField<VarProfile>> {
+        Dataset::var_profiles(self)
+    }
+
     fn inspect_logs(&self) -> String {
-        let counted: BTreeMap<String, usize> = Self::collect_logs()
+        let counted: BTreeMap<String, isize> = Self::collect_logs()
             .into_iter()
-            .map(|(warn, warnings)| (warn.to_string(), warnings.len()))
+            .map(|(warn, warnings)| (warn.to_string(), warnings.len() as isize))
             .collect();
 
         if counted.is_empty() {
@@ -304,7 +415,7 @@ pub enum HydrateError {
     MissingExpectedField(&'static str, &'static str),
 
     #[error("An item had invalid values: {0:?}")]
-    InvalidValues(Vec<InvalidValue>),
+    InvalidValues(Vec<Breach>),
 
     #[error("There were multiple errors: {0:?}")]
     Many(Vec<HydrateError>),
@@ -339,11 +450,7 @@ mod tests {
             field_c: f32,
         }
         impl Constrained for Target {
-            fn id(&self) -> String {
-                String::new()
-            }
-
-            fn validate(&self) -> Vec<InvalidValue> {
+            fn validate(&self) -> Vec<Breach> {
                 if self.field_a < 0.0 {
                     return vec![InvalidValue {
                         field: "field_a".into(),

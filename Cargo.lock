@@ -1221,6 +1221,7 @@ dependencies = [
  "iocraft",
  "itertools 0.13.0",
  "lace",
+ "maud",
  "ndarray",
  "ordered-float",
  "paste",
@@ -1236,6 +1237,7 @@ dependencies = [
  "serde_with",
  "serde_yaml",
  "smartcore",
+ "strum 0.26.3",
  "thiserror",
  "time",
  "tracing",
@@ -1918,6 +1920,28 @@ dependencies = [
  "once_cell",
  "rawpointer",
  "thread-tree",
+]
+
+[[package]]
+name = "maud"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df518b75016b4289cdddffa1b01f2122f4a49802c93191f3133f6dc2472ebcaa"
+dependencies = [
+ "itoa",
+ "maud_macros",
+]
+
+[[package]]
+name = "maud_macros"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa453238ec218da0af6b11fc5978d3b5c3a45ed97b722391a2a11f3306274e18"
+dependencies = [
+ "proc-macro-error",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -2790,6 +2814,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dee4364d9f3b902ef14fab8a1ddffb783a1cb6b4bba3bfc1fa3922732c7de97f"
 dependencies = [
  "zerocopy 0.6.6",
+]
+
+[[package]]
+name = "proc-macro-error"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da25490ff9892aab3fcf7c36f08cfb902dd3e71ca0f9f9517bea02a73a5ce38c"
+dependencies = [
+ "proc-macro-error-attr",
+ "proc-macro2",
+ "quote",
+ "version_check 0.9.5",
+]
+
+[[package]]
+name = "proc-macro-error-attr"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1be40180e52ecc98ad80b184934baf3d0d29f979574e439af5a55274b35f869"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "version_check 0.9.5",
 ]
 
 [[package]]

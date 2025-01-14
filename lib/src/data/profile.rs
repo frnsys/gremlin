@@ -15,11 +15,11 @@ serde_with::with_prefix!(summary "summary.");
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct Count {
-    pub count: usize,
+    pub count: isize,
     pub percent: f32,
 }
 impl Count {
-    pub fn new(count: usize, total: usize) -> Self {
+    pub fn new(count: isize, total: usize) -> Self {
         let percent = count as f32 / total as f32;
         Self { count, percent }
     }
@@ -39,6 +39,15 @@ impl Count {
 impl std::fmt::Display for Count {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} ({})", self.count, self.display_percent())
+    }
+}
+impl<'a, 'b> std::ops::Sub<&'b Count> for &'a Count {
+    type Output = Count;
+    fn sub(self, rhs: &'b Count) -> Self::Output {
+        Count {
+            count: self.count - rhs.count,
+            percent: self.percent - rhs.percent,
+        }
     }
 }
 
@@ -77,6 +86,21 @@ pub struct VarProfile {
 
     #[serde(flatten, with = "summary")]
     pub summary: Summary,
+}
+impl std::ops::Sub<&VarProfile> for &VarProfile {
+    type Output = VarProfile;
+    fn sub(self, rhs: &VarProfile) -> Self::Output {
+        VarProfile {
+            missing: &self.missing - &rhs.missing,
+            infinite: &self.infinite - &rhs.infinite,
+            negative: &self.negative - &rhs.negative,
+            zero: &self.zero - &rhs.zero,
+            duplicate: &self.duplicate - &rhs.duplicate,
+            distinct: &self.distinct - &rhs.distinct,
+            is_constant: rhs.is_constant,
+            summary: &self.summary - &rhs.summary,
+        }
+    }
 }
 
 #[cfg(feature = "console")]
@@ -192,7 +216,7 @@ pub struct Summary {
     pub outlier_lower_bound: f32,
     pub outlier_upper_bound: f32,
     pub histogram: String,
-    pub sample_size: usize,
+    pub sample_size: isize,
 }
 impl Summary {
     pub fn empty() -> Self {
@@ -225,24 +249,53 @@ impl Default for Summary {
         Self::empty()
     }
 }
+impl std::ops::Sub<&Summary> for &Summary {
+    type Output = Summary;
+    fn sub(self, rhs: &Summary) -> Self::Output {
+        Summary {
+            min: self.min - rhs.min,
+            max: self.max - rhs.max,
+            mean: self.mean - rhs.mean,
+            median: self.median - rhs.median,
+            std_dev: self.std_dev - rhs.std_dev,
+            p5: self.p5 - rhs.p5,
+            p95: self.p95 - rhs.p95,
+            q1: self.q1 - rhs.q1,
+            q3: self.q3 - rhs.q3,
+            iqr: self.iqr - rhs.iqr,
+            range: self.range - rhs.range,
+            kurtosis: self.kurtosis - rhs.kurtosis,
+            skewness: self.skewness - rhs.skewness,
+            coef_of_var: self.coef_of_var - rhs.coef_of_var,
+            mean_abs_dev: self.mean_abs_dev - rhs.mean_abs_dev,
+            outliers: &self.outliers - &rhs.outliers,
+            outlier_lower_bound: self.outlier_lower_bound - rhs.outlier_lower_bound,
+            outlier_upper_bound: self.outlier_upper_bound - rhs.outlier_upper_bound,
+            sample_size: self.sample_size - rhs.sample_size,
+
+            // TODO show actual difference
+            histogram: rhs.histogram.clone(),
+        }
+    }
+}
 
 pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
     let values: Vec<f32> = values.map(|val| val.into()).collect();
     let total = values.len();
 
     let valid: Vec<f32> = values.into_iter().filter(|val| !val.is_nan()).collect();
-    let n_valid = valid.len();
+    let n_valid = valid.len() as isize;
 
-    let missing = Count::new(total - n_valid, total);
+    let missing = Count::new(total as isize - n_valid as isize, total);
 
     let finite: Vec<f32> = valid.into_iter().filter(|val| val.is_finite()).collect();
-    let infinite = Count::new(n_valid - finite.len(), total);
+    let infinite = Count::new(n_valid - finite.len() as isize, total);
 
     let negative = finite.iter().filter(|val| **val < 0.0).count();
-    let negative = Count::new(negative, total);
+    let negative = Count::new(negative as isize, total);
 
     let zero = finite.iter().filter(|val| **val == 0.0).count();
-    let zero = Count::new(zero, total);
+    let zero = Count::new(zero as isize, total);
 
     let mut valid = finite;
 
@@ -257,9 +310,9 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
         let count = counts.entry(val).or_default();
         *count += 1;
     }
-    let n_duplicate = counts.values().filter(|count| **count > 1).sum();
+    let n_duplicate = counts.values().filter(|count| **count > 1).sum::<usize>() as isize;
     let duplicate = Count::new(n_duplicate, valid.len());
-    let distinct = Count::new(valid.len() - n_duplicate, valid.len());
+    let distinct = Count::new(valid.len() as isize - n_duplicate, valid.len());
     let is_constant = counts.len() == 1;
 
     let summary = if valid.is_empty() {
@@ -285,13 +338,13 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
 
         let p5 = calculate_percentile(&valid, 5.);
         let p95 = calculate_percentile(&valid, 95.);
-        let sample_size = valid.len();
+        let sample_size = valid.len() as isize;
 
         let non_outlier: Vec<f32> = valid
             .into_iter()
             .filter(move |val| *val >= outlier_lower_bound && *val <= outlier_upper_bound)
             .collect();
-        let outliers = Count::new(n_valid - non_outlier.len(), n_valid);
+        let outliers = Count::new(n_valid as isize - non_outlier.len() as isize, n_valid);
 
         // TODO should this be calculated after or before removing outliers?
         let valid = non_outlier;
