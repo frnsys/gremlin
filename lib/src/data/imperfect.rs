@@ -11,7 +11,7 @@ use super::Row;
 #[macro_export]
 macro_rules! imperfect {
     ($t:ty, $err:ty) => {
-        impl Imperfect for $t {
+        impl gremlin::data::Imperfect for $t {
             type Warning = $err;
             fn logger() -> &'static $crate::data::DataLogger<Self::Warning> {
                 static LOGGER: std::sync::LazyLock<$crate::data::DataLogger<$err>> =

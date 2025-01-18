@@ -64,6 +64,8 @@ pub struct SetProfile {
 /// Data profile for a single variable.
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct VarProfile {
+    pub total: usize,
+
     #[serde(flatten, with = "missing")]
     pub missing: Count,
 
@@ -91,6 +93,7 @@ impl std::ops::Sub<&VarProfile> for &VarProfile {
     type Output = VarProfile;
     fn sub(self, rhs: &VarProfile) -> Self::Output {
         VarProfile {
+            total: &self.total - &rhs.total,
             missing: &self.missing - &rhs.missing,
             infinite: &self.infinite - &rhs.infinite,
             negative: &self.negative - &rhs.negative,
@@ -396,6 +399,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
     };
 
     VarProfile {
+        total,
         missing,
         infinite,
         negative,

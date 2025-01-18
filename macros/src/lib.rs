@@ -8,10 +8,11 @@ use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     bracketed,
+    meta::ParseNestedMeta,
     parse::{Parse, ParseStream, Result},
     parse_macro_input,
     punctuated::Punctuated,
-    Constraint, Data, DeriveInput, Fields, GenericArgument, Lit, Meta, NestedMeta, Path,
+    Constraint, Data, DeriveInput, Expr, ExprLit, Fields, GenericArgument, Ident, Lit, Meta, Path,
     PathArguments, Token, Type, TypePath,
 };
 
@@ -38,9 +39,9 @@ pub fn derive_has_schema(input: TokenStream) -> TokenStream {
 
         let docs = attrs.iter().filter_map(|attr| {
             // Check if the attribute is a doc comment
-            if attr.path.is_ident("doc") {
-                if let Ok(Meta::NameValue(meta_name_value)) = attr.parse_meta() {
-                    if let Lit::Str(lit_str) = &meta_name_value.lit {
+            if attr.path().is_ident("doc") {
+                if let Meta::NameValue(meta) = &attr.meta {
+                    if let Expr::Lit(ExprLit { lit: Lit::Str(lit_str), .. }) = &meta.value {
                         return Some(lit_str.value());
                     }
                 }
@@ -48,14 +49,20 @@ pub fn derive_has_schema(input: TokenStream) -> TokenStream {
             None
         }).collect::<Vec<String>>().join("\n");
 
-        let is_flattened = attrs.iter()
-            .any(|attr| {
-                matches!(attr.parse_meta(), Ok(Meta::List(meta)) if meta.path.is_ident("serde") && meta.nested.iter().any(|n| matches!(n, NestedMeta::Meta(Meta::Path(path)) if path.is_ident("flatten"))))
-            });
+        let mut is_flattened = false;
+        for attr in attrs.iter() {
+            if attr.path().is_ident("serde") {
+                if let Meta::Path(path) = &attr.meta {
+                    if path.is_ident("flatten") {
+                        is_flattened = true;
+                    }
+                }
+            }
+        }
 
         if is_flattened {
             quote! {
-                <#field_type as HasSchema>::schema().into_iter().map(|(name, typ, f_docs)| {
+                <#field_type as gremlin::docs::HasSchema>::schema().into_iter().map(|(name, typ, f_docs)| {
                     (format!("{}.{}", #field_name, name), typ, format!("{} : {}", #docs.trim().trim_right_matches(".").to_string(), f_docs))
                 }).collect::<Vec<_>>()
             }
@@ -68,7 +75,7 @@ pub fn derive_has_schema(input: TokenStream) -> TokenStream {
     .collect::<Vec<TokenStream2>>();
 
     let expanded = quote! {
-        impl HasSchema for #name {
+        impl gremlin::docs::HasSchema for #name {
             fn schema() -> Vec<(String, &'static str, String)> {
                 vec![
                     #(#schema_fields),*
@@ -94,10 +101,27 @@ fn is_vec_type(ty: &Type) -> bool {
     }
 }
 
+/// You can use the struct-level attribute:
+/// `#[row(MyStruct::some_method)]`
+/// Note that this needs to return a type `T`
+/// that implements `AsRowValue`.
 #[proc_macro_derive(Row, attributes(row, facet))]
 pub fn derive_row(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let struct_name = input.ident;
+
+    let mut synthetic_rows = vec![];
+    for attr in &input.attrs {
+        if attr.path().is_ident("row") {
+            if matches!(attr.meta, Meta::List(_)) {
+                attr.parse_nested_meta(|meta| {
+                    synthetic_rows.push(meta.path.clone());
+                    Ok(())
+                })
+                .unwrap();
+            }
+        }
+    }
 
     let mut columns = Vec::new();
     let mut values = Vec::new();
@@ -110,27 +134,27 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
                 let field_name_str = field_name.to_string();
 
                 // Check for #[row] attribute
-                let is_row_field = field.attrs.iter().any(|attr| attr.path.is_ident("row"));
+                let row_field = find_row_attribute(&field_name_str, &field.attrs);
 
-                if is_row_field {
+                if let Some(row_field) = row_field {
                     // Handle nested Row types
                     let field_type = &field.ty;
                     columns.push(quote! {
-                        <#field_type as Row>::columns()
+                        <#field_type as gremlin::data::Row>::columns()
                             .into_iter()
                             .map(|col| if col.is_empty() {
-                                format!("{}", #field_name_str)
+                                format!("{}", #row_field)
                             } else {
-                                format!("{}.{}", #field_name_str, col)
+                                format!("{}.{}", #row_field, col)
                             })
                     });
                     values.push(quote! {
-                        <#field_type as Row>::values(&self.#field_name)
+                        <#field_type as gremlin::data::Row>::values(&self.#field_name)
                     });
                 }
 
                 // Check for #[facet] attribute
-                let is_facet_field = field.attrs.iter().any(|attr| attr.path.is_ident("facet"));
+                let is_facet_field = field.attrs.iter().any(|attr| attr.path().is_ident("facet"));
                 if is_facet_field {
                     facet = quote! { self.#field_name.to_string() };
                 }
@@ -138,9 +162,25 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
         }
     }
 
+    if !synthetic_rows.is_empty() {
+        let names = synthetic_rows
+            .iter()
+            .map(|func| func.segments.last().unwrap());
+        columns.push(quote! {
+            vec![
+                #(stringify!(#names).to_string())*
+            ]
+        });
+        values.push(quote! {
+            vec![
+                #(#synthetic_rows(self).as_f32())*
+            ]
+        });
+    }
+
     // Generate the impl
     let expanded = quote! {
-        impl Row for #struct_name {
+        impl gremlin::data::Row for #struct_name {
             fn columns() -> Vec<String> {
                 let mut cols = Vec::new();
                 #(std::iter::Extend::extend(&mut cols, #columns);)*
@@ -176,20 +216,19 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     let mut derive_partial_constrained = false;
     let mut derive_from_default = false;
     for attr in &input.attrs {
-        if attr.path.is_ident("partial") {
-            if let Ok(Meta::List(meta_list)) = attr.parse_meta() {
-                for nested in meta_list.nested.iter() {
-                    if let NestedMeta::Meta(Meta::Path(path)) = nested {
-                        if path.is_ident("row") {
-                            derive_partial_row = true;
-                        } else if path.is_ident("constrained") {
-                            derive_partial_constrained = true;
-                        } else if path.is_ident("from_default") {
-                            derive_from_default = true;
-                        }
-                    }
+        if attr.path().is_ident("partial") {
+            attr.parse_nested_meta(|meta| {
+                let ParseNestedMeta { path, .. } = &meta;
+                if path.is_ident("row") {
+                    derive_partial_row = true;
+                } else if path.is_ident("constrained") {
+                    derive_partial_constrained = true;
+                } else if path.is_ident("from_default") {
+                    derive_from_default = true;
                 }
-            }
+                Ok(())
+            })
+            .unwrap();
         }
     }
 
@@ -211,16 +250,22 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 let take_ident = syn::Ident::new(&format!("take_{}", ident), ident.span());
                 let mut new_ty = f.ty.clone();
 
-                let is_row_field = f.attrs.iter().any(|attr| attr.path.is_ident("row"));
+                let is_row_field = f.attrs.iter().any(|attr| attr.path().is_ident("row"));
                 if is_row_field {
-                    row_fields.push(ident);
+                    let field_type = &f.ty;
+                    row_fields.push(quote! {
+                        self.#ident.as_ref().map_or_else(|| {
+                            <#field_type as gremlin::data::Row>::columns()
+                                .iter().map(|_| f32::NAN).collect()
+                        }, <#field_type as gremlin::data::Row>::values)
+                    });
                 }
 
                 if derive_partial_constrained {
                     let mut constraints: Vec<_> = f
                         .attrs
                         .iter()
-                        .filter(|attr| attr.path.is_ident("constraint"))
+                        .filter(|attr| attr.path().is_ident("constraint"))
                         .map(|attr| attr.to_token_stream())
                         .collect();
                     if !constraints.is_empty() {
@@ -232,13 +277,13 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 }
 
                 // Here we know the field will always be an `Option`.
-                let is_facet_field = f.attrs.iter().any(|attr| attr.path.is_ident("facet"));
+                let is_facet_field = f.attrs.iter().any(|attr| attr.path().is_ident("facet"));
                 if is_facet_field {
                     facet = quote! { self.#ident.map(|f| f.to_string()).unwrap_or_default() };
                 }
 
                 // Handle `#[partial]` attribute.
-                let is_partial = f.attrs.iter().any(|attr| attr.path.is_ident("partial"));
+                let is_partial = f.attrs.iter().any(|attr| attr.path().is_ident("partial"));
                 if is_partial {
                     if let Type::Path(TypePath { path, .. }) = &new_ty {
                         if path.segments.len() == 1 && path.segments[0].ident == "Vec" {
@@ -327,13 +372,15 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
 
     let row_impl = if derive_partial_row {
         quote! {
-            impl Row for #partial_ident {
+            impl gremlin::data::Row for #partial_ident {
                 fn columns() -> Vec<String> {
                     #name::columns()
                 }
 
                 fn values(&self) -> Vec<f32> {
-                    vec![#(self.#row_fields.map_or(f32::NAN, |val| val.as_f32()),)*]
+                    let mut vals = Vec::new();
+                    #(std::iter::Extend::extend(&mut vals, #row_fields);)*
+                    vals
                 }
 
                 fn facet(&self) -> String {
@@ -373,12 +420,12 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
         }
 
         impl #partial_ident {
-            #(pub fn #field_idents(&self) -> Result<&#field_types, HydrateError> {
-                self.#field_idents.as_ref().ok_or(HydrateError::MissingExpectedField(stringify!(#name), stringify!(#field_idents)))
+            #(pub fn #field_idents(&self) -> Result<&#field_types, gremlin::data::HydrateError> {
+                self.#field_idents.as_ref().ok_or(gremlin::data::HydrateError::MissingExpectedField(stringify!(#name), stringify!(#field_idents)))
             })*
 
-            #(pub fn #field_take_idents(&mut self) -> Result<#field_types, HydrateError> {
-                self.#field_idents.take().ok_or(HydrateError::MissingExpectedField(stringify!(#name), stringify!(#field_idents)))
+            #(pub fn #field_take_idents(&mut self) -> Result<#field_types, gremlin::data::HydrateError> {
+                self.#field_idents.take().ok_or(gremlin::data::HydrateError::MissingExpectedField(stringify!(#name), stringify!(#field_idents)))
             })*
         }
 
@@ -413,10 +460,10 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl FromPartial for #name {
+        impl gremlin::data::FromPartial for #name {
             type Partial = #partial_ident;
 
-            fn from(mut partial: Self::Partial) -> Result<Self, HydrateError> {
+            fn from(mut partial: Self::Partial) -> Result<Self, gremlin::data::HydrateError> {
                 let mut missing_fields = Vec::new();
 
                 #(
@@ -426,7 +473,7 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 )*
 
                 if !missing_fields.is_empty() {
-                    return Err(HydrateError::EmptyFields(stringify!(#name), missing_fields));
+                    return Err(gremlin::data::HydrateError::EmptyFields(stringify!(#name), missing_fields));
                 }
 
                 Ok(#name {
@@ -445,6 +492,31 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     };
 
     TokenStream::from(expanded)
+}
+
+/// Find a specified alternate name for the row;
+/// defaults to the field name if none is found.
+fn find_row_attribute(field: &str, attrs: &[syn::Attribute]) -> Option<String> {
+    let mut found = None;
+    for attr in attrs {
+        if attr.path().is_ident("row") {
+            if let Meta::NameValue(meta) = &attr.meta {
+                if meta.path.is_ident("rename") {
+                    if let Expr::Lit(ExprLit {
+                        lit: Lit::Str(lit_str),
+                        ..
+                    }) = &meta.value
+                    {
+                        found = Some(lit_str.value());
+                    }
+                }
+            }
+            if found.is_none() {
+                found = Some(field.to_string());
+            }
+        }
+    }
+    found
 }
 
 struct MacroInput {
@@ -579,11 +651,13 @@ pub fn has_variants_derive(input: TokenStream) -> TokenStream {
             .attrs
             .iter()
             .filter_map(|attr| {
-                if let Ok(Meta::NameValue(meta)) = attr.parse_meta() {
-                    if meta.path.is_ident("doc") {
-                        if let syn::Lit::Str(lit) = meta.lit {
-                            return Some(lit.value());
-                        }
+                if let Meta::NameValue(meta) = &attr.meta {
+                    if let Expr::Lit(ExprLit {
+                        lit: Lit::Str(lit_str),
+                        ..
+                    }) = &meta.value
+                    {
+                        return Some(lit_str.value());
                     }
                 }
                 None
@@ -636,74 +710,59 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
         // and assumes that the field is in fact `Option<f32>`.
         let mut allow_none = false;
         for attr in &field.attrs {
-            if attr.path.is_ident("constraint") {
-                if let Ok(Meta::List(list)) = attr.parse_meta() {
-                    for nested in list.nested {
-                        match nested {
-                            NestedMeta::Meta(Meta::Path(path)) => {
-                                let name = path.get_ident().unwrap();
-                                if name.to_string() == "allow_none" {
-                                    allow_none = true;
-                                }
-                            }
-                            _ => (),
-                        }
+            if attr.path().is_ident("constraint") {
+                if let Meta::Path(path) = &attr.meta {
+                    if path.is_ident("allow_none") {
+                        allow_none = true;
                     }
                 }
             }
         }
 
         for attr in field.attrs {
-            if attr.path.is_ident("constraint") {
-                if let Ok(Meta::List(list)) = attr.parse_meta() {
-                    for nested in list.nested {
-                        match nested {
-                            NestedMeta::Meta(Meta::Path(path)) => {
-                                let function = path.get_ident().unwrap();
+            if attr.path().is_ident("constraint") {
+                match attr.meta {
+                    Meta::Path(path) => {
+                        if path.is_ident("allow_none") {
+                            // `allow_none` handled above.
+                            continue;
+                        }
 
-                                // `allow_none` handled above.
-                                let name = path.get_ident().unwrap();
-                                if name == "allow_none" {
-                                    continue;
-                                }
+                        let function = path.get_ident().unwrap();
 
-                                // Allow `None` values to pass.
-                                if allow_none {
-                                    field_validations.push(quote! {
-                                        if let Some(value) = &self.#field_name {
-                                            if !#function(value) {
-                                                errors.push(gremlin::data::Breach {
-                                                    field: stringify!(#field_name).to_string(),
-                                                    constraint: stringify!(#function).to_string(),
-                                                    value: value.to_string(),
-                                                })
-                                            }
-                                        }
-                                    });
-                                } else {
-                                    field_validations.push(quote! {
-                                        if !#function(&self.#field_name) {
-                                            errors.push(gremlin::data::Breach {
-                                                field: stringify!(#field_name).to_string(),
-                                                constraint: stringify!(#function).to_string(),
-                                                value: self.#field_name.to_string(),
-                                            })
-                                        }
-                                    });
+                        // Allow `None` values to pass.
+                        if allow_none {
+                            field_validations.push(quote! {
+                                if let Some(value) = &self.#field_name {
+                                    if !#function(value) {
+                                        errors.push(gremlin::data::Breach {
+                                            field: stringify!(#field_name).to_string(),
+                                            constraint: stringify!(#function).to_string(),
+                                            value: value.to_string(),
+                                        })
+                                    }
                                 }
-                            }
-                            NestedMeta::Meta(Meta::NameValue(name_value)) => {
-                                let constraint = name_value.path.get_ident().unwrap();
-                                let value = name_value.lit;
-                                constraints.push(
-                                    quote! { gremlin::data::Constraint::#constraint(#value) },
-                                );
-                            }
-                            _ => (),
+                            });
+                        } else {
+                            field_validations.push(quote! {
+                                if !#function(&self.#field_name) {
+                                    errors.push(gremlin::data::Breach {
+                                        field: stringify!(#field_name).to_string(),
+                                        constraint: stringify!(#function).to_string(),
+                                        value: self.#field_name.to_string(),
+                                    })
+                                }
+                            });
                         }
                     }
+                    Meta::NameValue(meta) => {
+                        let constraint = meta.path.get_ident().unwrap();
+                        let value = meta.value;
+                        constraints.push(quote! { gremlin::data::Constraint::#constraint(#value) });
+                    }
+                    _ => (),
                 }
-            } else if attr.path.is_ident("constrained") {
+            } else if attr.path().is_ident("constrained") {
                 // Allow `None` values to pass.
                 if allow_none {
                     field_validations.push(quote! {
@@ -763,6 +822,76 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
                 let mut errors = vec![];
                 #(#field_validations)*
                 errors
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_derive(Dataset, attributes(dataset))]
+pub fn derive_dataset(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let struct_name = input.ident;
+
+    let mut row_type = None;
+    let mut facet_type = None;
+
+    for attr in &input.attrs {
+        if attr.path().is_ident("dataset") {
+            if let Meta::List(_) = attr.meta {
+                attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("row") {
+                        let value = meta.value().unwrap();
+                        let path: Ident = value.parse().unwrap();
+                        row_type = Some(path);
+                    } else if meta.path.is_ident("facet") {
+                        let value = meta.value().unwrap();
+                        let path: Ident = value.parse().unwrap();
+                        facet_type = Some(path);
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            }
+        }
+    }
+
+    let mut rows_field = None;
+
+    if let Data::Struct(data_struct) = input.data {
+        if let Fields::Named(fields) = data_struct.fields {
+            for field in fields.named {
+                for attr in &field.attrs {
+                    if attr.path().is_ident("dataset") {
+                        attr.parse_nested_meta(|meta| {
+                            if meta.path.is_ident("rows") {
+                                rows_field = Some(field.ident.clone().unwrap());
+                            }
+                            Ok(())
+                        })
+                        .unwrap();
+                    }
+                }
+            }
+        }
+    }
+
+    // Generate the impl
+    let expanded = quote! {
+        impl gremlin::data::Dataset for #struct_name {
+            type Row = #row_type;
+            type Facet = #facet_type;
+
+            fn rows(&self) -> impl Iterator<Item = &Self::Row> {
+                self.#rows_field.iter()
+            }
+
+            fn faceted(&self) -> std::collections::BTreeMap<Self::Facet, Vec<&Self::Row>> {
+                let hm = self
+                    .rows()
+                    .group_by(|row| self.get_row_facet(row));
+                hm.into_iter().collect()
             }
         }
     };

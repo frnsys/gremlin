@@ -8,6 +8,7 @@ use crate::data::{
 use super::{util, Diff, RiverReport};
 use itertools::Itertools;
 use maud::html;
+use num_format::{Locale, ToFormattedString};
 
 const CSS: &'static str = include_str!("assets/report.css");
 const JS: &'static str = include_str!("assets/report.js");
@@ -21,6 +22,18 @@ const ERROR_SCALE: &[&str] = &[
 fn error_color(error: f32) -> &'static str {
     let idx = (error.abs() / 100. * ERROR_SCALE.len() as f32).floor() as usize;
     ERROR_SCALE[idx.min(ERROR_SCALE.len() - 1)]
+}
+
+pub fn report_css() -> maud::Markup {
+    html! {
+        style { (maud::PreEscaped(CSS)) }
+    }
+}
+
+pub fn report_js() -> maud::Markup {
+    html! {
+        script type="text/javascript" { (maud::PreEscaped(JS)) }
+    }
 }
 
 impl RiverReport {
@@ -59,7 +72,7 @@ impl RiverReport {
 }
 
 impl StepResult {
-    fn as_html(&self, refs: &VarReferences) -> maud::Markup {
+    pub fn as_html(&self, refs: &VarReferences) -> maud::Markup {
         let var_changes_by_facet = self.outputs.count_changes();
         let changes_by_facet = util::sum_inner(&var_changes_by_facet);
         let changes_by_var = util::transpose_sum_inner(&var_changes_by_facet);
@@ -251,20 +264,39 @@ fn diff_col(cur: f32, prev: f32) -> maud::Markup {
     }
 }
 
+fn count_change_span(cur: isize, prev: isize) -> maud::Markup {
+    let diff = cur - prev;
+    html! {
+        @if diff == 0 {
+            span.change-none {
+                (format!(" {}", diff.to_formatted_string(&Locale::en)))
+            }
+        } @else if  diff > 0 {
+            span.change-up {
+                (format!(" +{}", diff.to_formatted_string(&Locale::en)))
+            }
+        } @else {
+            span.change-down {
+                (format!(" {}", diff.to_formatted_string(&Locale::en)))
+            }
+        }
+    }
+}
+
 fn count_change_col(cur: isize, prev: isize) -> maud::Markup {
     let diff = cur - prev;
     html! {
         @if diff == 0 {
             td.change-none {
-                (format!("{:+.2}", diff))
+                (format!("{:+}", diff))
             }
         } @else if  diff > 0 {
             td.change-up {
-                (format!("{:+.2}", diff))
+                (format!("{:+}", diff))
             }
         } @else {
             td.change-down {
-                (format!("{:+.2}", diff))
+                (format!("{:+}", diff))
             }
         }
     }
@@ -344,15 +376,20 @@ fn diffed_profiles_html(
 
     html! {
         .profiles {
-            .profiles-tabs {
-                @for facet in vars.current.keys() {
-                    @let changed = *counts_by_facet.get(facet).unwrap_or(&0) > 0;
-                    .profiles-tab { (
-                        format!("{}{}", if changed {
-                            "*"
-                        } else {
-                            ""
-                        }, facet_name(facet))) }
+            .profiles-side {
+                .facet-header {
+                    "Facets"
+                }
+                .profiles-tabs {
+                    @for facet in vars.current.keys() {
+                        @let changed = *counts_by_facet.get(facet).unwrap_or(&0) > 0;
+                        .profiles-tab { (
+                            format!("{}{}", if changed {
+                                "*"
+                            } else {
+                                ""
+                            }, facet_name(facet))) }
+                    }
                 }
             }
             .profiles-profiles {
@@ -390,7 +427,22 @@ fn profile_diff_table(
         columns.append(&mut vec!["#∅", "Δ", "#-", "Δ", "#0", "Δ", "#∞", "Δ"]);
     }
 
+    // TODO kinda hacky
+    let total = vars
+        .current
+        .first_key_value()
+        .map_or(0, |profile| profile.1.total);
+    let last_total = vars
+        .previous
+        .map(|vars| vars.first_key_value().map_or(0, |profile| profile.1.total));
+
     html! {
+        .profile-stats {
+            (format!("Total: {}", total.to_formatted_string(&Locale::en)))
+            (last_total.map(|last| {
+                count_change_span(total as isize, last as isize)
+            }).unwrap_or_default())
+        }
         table.profile {
             tr {
                 @for col in columns {

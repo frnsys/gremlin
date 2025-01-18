@@ -12,12 +12,15 @@ table {
 .profiles {
   display: flex;
 }
+.profiles-side {
+  margin-right: 1em;
+}
 .profiles-tabs {
   max-height: 300px;
   border: 1px solid #2e2e2e;
   overflow-y: scroll;
-  margin-right: 1em;
   align-self: flex-start;
+  margin-top: 5px;
 }
 .profiles-tab {
   color: #3c3c3c;
@@ -26,6 +29,7 @@ table {
   cursor: pointer;
   max-width: 120px;
   text-overflow: ellipsis;
+  white-space: nowrap;
   overflow: hidden;
 }
 .profiles-tab.focused {
@@ -69,6 +73,7 @@ td:first-child {
   max-width: 125px;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ref-vals {
@@ -78,7 +83,7 @@ td:first-child {
   color: #bbb;
 }
 .ref-vals td:first-child {
-  padding-left: 2em;
+  padding-left: 1.2em;
 }
 
 .change-none {
@@ -181,4 +186,11 @@ td:first-child {
 
 .input-data {
   display: none;
+}
+
+.facet-header,
+.profile-stats {
+  padding: 3px;
+  background: #222;
+  border-radius: 3px;
 }

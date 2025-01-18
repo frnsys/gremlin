@@ -7,7 +7,7 @@ use fs_err::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use itertools::multizip;
+use itertools::{multizip, Itertools};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_yaml::{Number, Value};
 
@@ -26,7 +26,22 @@ pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> impl Iterator<I
     reader.into_records().map(move |rec| {
         let rec = rec.with_context(|| display.clone()).unwrap();
         rec.deserialize(Some(&headers))
-            .with_context(|| format!("Source: {src}\n{rec:?}"))
+            .inspect_err(|err| match err.kind() {
+                csv::ErrorKind::Deserialize { err, .. } => {
+                    if let Some(idx) = err.field() {
+                        eprintln!("Field: {:?}", &headers[idx as usize]);
+                    }
+                }
+                _ => {}
+            })
+            .with_context(|| {
+                let rows = headers
+                    .iter()
+                    .zip(rec.iter())
+                    .map(|(col, val)| format!("{}: {:?}", col, val))
+                    .join("\n");
+                format!("Source: {src}\n{rows}")
+            })
             .unwrap()
     })
 }

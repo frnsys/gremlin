@@ -36,12 +36,12 @@ use thiserror::Error;
 
 use crate::data::display::CountTable;
 
-pub use super::report::rows_html;
+pub use super::report::{report_css, report_js, rows_html, Diff};
 use super::{
     constrain::{Breach, Constrained},
     partial::{FromPartial, Partial},
     profile::VarProfile,
-    report::{Diff, RiverReport},
+    report::RiverReport,
     DataProfile, Dataset, Imperfect, Row,
 };
 
@@ -130,7 +130,7 @@ pub struct StepResult {
     pub incomplete: Diff<isize>,
 }
 impl StepResult {
-    fn new(
+    pub fn new(
         num: usize,
         name: String,
         inputs: ByFacet<ByField<VarProfile>>,

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::{AsFacet, Facet};
+use super::{AsFacet, ByFacet, ByField, Facet};
 
 #[derive(Debug)]
 pub struct Reference<F: Facet> {
@@ -28,6 +28,29 @@ impl<F: Facet> Reference<F> {
         by_facet.insert(None, self.aggregate.clone());
         for (facet, vars) in &self.by_facet {
             by_facet.insert(Some(facet.clone()), vars.clone());
+        }
+        by_facet
+    }
+
+    pub fn to_other_facet<T: Facet>(&self) -> ByFacet<ByFacet<ByField<f32>>>
+    where
+        F: AsFacet<T>,
+    {
+        let mut by_facet: ByFacet<ByFacet<ByField<f32>>> = BTreeMap::default();
+        for (source_facet, vars) in self.by_facet() {
+            match source_facet {
+                Some(source_facet) => {
+                    let facet_name = source_facet.to_string();
+                    let mapped_facets = by_facet.entry(Some(facet_name)).or_default();
+                    for facet in source_facet.to_facet::<T>() {
+                        mapped_facets.insert(Some(facet.to_string()), vars.clone());
+                    }
+                }
+                None => {
+                    let mapped_facets = by_facet.entry(None).or_default();
+                    mapped_facets.insert(None, vars);
+                }
+            }
         }
         by_facet
     }

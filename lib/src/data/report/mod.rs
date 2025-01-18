@@ -3,7 +3,7 @@ mod util;
 mod view;
 
 pub use diff::Diff;
-pub use view::rows_html;
+pub use view::{report_css, report_js, rows_html};
 
 use super::{StepResult, Strictness, VarReferences};
 

@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use iocraft::{element, ElementExt};
 
-use crate::{core::Unit, data::display::FacetedVarTables};
+use crate::{
+    core::{Percent, Unit},
+    data::display::FacetedVarTables,
+};
 
 use super::{
     profile::{profile, VarProfile},
@@ -92,6 +95,11 @@ impl<U: Unit> AsRowValue for U {
 impl<U: Unit> AsRowValue for Option<U> {
     fn as_f32(&self) -> f32 {
         self.as_ref().map_or(f32::NAN, |val| val.value())
+    }
+}
+impl AsRowValue for Percent {
+    fn as_f32(&self) -> f32 {
+        self.value()
     }
 }
 
