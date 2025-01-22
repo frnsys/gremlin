@@ -21,3 +21,21 @@ pub trait FromPartial: Sized {
 pub trait Partial {
     fn missing_fields(&self) -> Vec<&'static str>;
 }
+
+pub trait OptionExt<T> {
+    fn fallback(&mut self, value: T);
+}
+impl<T> OptionExt<T> for Option<T> {
+    fn fallback(&mut self, value: T) {
+        if self.is_none() {
+            *self = Some(value);
+        }
+    }
+}
+impl<T> OptionExt<Option<T>> for Option<T> {
+    fn fallback(&mut self, value: Option<T>) {
+        if self.is_none() && value.is_some() {
+            *self = value;
+        }
+    }
+}

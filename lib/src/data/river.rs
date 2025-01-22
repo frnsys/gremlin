@@ -15,8 +15,7 @@
 //! to fail.
 //!
 //! To better understand what's happening in the pipeline there are outputs to describe the
-//! input data, output data, and custom warnings. These are handled by three traits: [`Dataset`],
-//! [`Row`], and [`Imperfect`].
+//! input and output data. These are handled by two traits: [`Dataset`] and [`Row`].
 //!
 //! [`Dataset`] basically describes a collection of [`Row`]s, and a `Row` should describe the
 //! fields of a struct in a table-style format; i.e. with column names and values (currently
@@ -28,12 +27,9 @@
 //! to be hard failures but rather warnings about potential data quality issues to help identify
 //! where problematic values may be coming from. For hard failures instead look to [`Constrained`].
 
-use iocraft::{element, ElementExt};
 use itertools::Itertools;
-use std::{backtrace::Backtrace, collections::BTreeMap, fmt::Debug, io::Write, path::Path};
+use std::{backtrace::Backtrace, collections::BTreeMap, fmt::Debug, path::Path};
 use thiserror::Error;
-
-use crate::data::display::CountTable;
 
 pub use super::report::{report_css, report_js, rows_html, Diff};
 use super::{
@@ -41,7 +37,7 @@ use super::{
     partial::{FromPartial, Partial},
     profile::VarProfile,
     report::RiverReport,
-    DataProfile, Dataset, Imperfect, Row,
+    DataProfile, Dataset, Row,
 };
 
 /// Define the river's strictness.
@@ -167,8 +163,6 @@ where
 
         let mut step = 0;
 
-        let mut buffer = Vec::new();
-
         if let Some(dir) = &log_dir {
             if !dir.exists() {
                 fs_err::create_dir_all(dir)?;
@@ -176,14 +170,7 @@ where
         }
 
         // Generate initial items.
-        profile!(
-            log_dir,
-            step,
-            self.source.name(),
-            self.source.inspect_data()
-        );
         let mut items = self.source.generate()?;
-        writeln!(buffer, "{}", self.source.inspect_logs())?;
 
         let mut incomplete: Diff<isize> = Diff::default();
         incomplete.current = items
@@ -195,7 +182,7 @@ where
         let mut var_profiles = Diff::new(items.var_profiles());
 
         report.play_by_play.push(StepResult::new(
-            0,
+            step,
             self.source.name(),
             self.source.inspect_vars(),
             var_profiles.clone(),
@@ -206,11 +193,11 @@ where
         profile!(log_dir, step, Dataset::name(&items), items.profile());
 
         // Fill in (hydrate) items.
-        for (i, tributary) in self.tributaries.iter().enumerate() {
-            profile!(log_dir, step, tributary.name(), tributary.inspect_data());
+        for tributary in self.tributaries.iter() {
+            step += 1;
+
             tributary.fill(&mut items)?;
             profile!(log_dir, step, Dataset::name(&items), items.profile());
-            writeln!(buffer, "{}", tributary.inspect_logs())?;
 
             incomplete.update(
                 items
@@ -222,18 +209,15 @@ where
 
             var_profiles.update(items.var_profiles());
             report.play_by_play.push(StepResult::new(
-                i + 1,
+                step,
                 tributary.name(),
                 tributary.inspect_vars(),
                 var_profiles.clone(),
                 invalid.clone(),
                 incomplete.clone(),
             ));
-
-            // writeln!(buffer, "{}", T::collect_logs())?; // TODO
         }
 
-        let total = items.len();
         let items = items.into_iter().map(|partial| T::from(partial));
 
         // Check for incomplete items.
@@ -253,10 +237,6 @@ where
                     }
                 }
             }
-            let incomplete_table =
-                element!(CountTable(name: "Incomplete".to_string(), total: Some(total), counts: error_counts.clone()))
-                    .to_string();
-            writeln!(buffer, "{}", incomplete_table)?;
 
             if ignore_incomplete {
                 tracing::warn!("{} incomplete items, ignoring.", incomplete.len());
@@ -294,9 +274,6 @@ where
                     }
                 }
             }
-            let error_table =
-                element!(CountTable(name: "Invalid".to_string(), total: Some(total), counts: error_counts)).to_string();
-            writeln!(buffer, "{}", error_table)?;
 
             if ignore_invalid {
                 tracing::warn!("{} invalid items, ignoring.", invalid.len());
@@ -308,11 +285,6 @@ where
         }
 
         profile!(log_dir, step, Dataset::name(&items), items.profile());
-
-        // if let Some(path) = log_path {
-        //     let mut file = File::create(path)?;
-        //     file.write_all(&buffer)?;
-        // }
 
         Ok((items, report))
     }
@@ -356,42 +328,23 @@ fn write_profiles_to_csv(
 /// implement this trait.
 ///
 /// However you do not need to implement this trait
-/// directly; instead you should implement [`Dataset`]
-/// and [`Imperfect`]
+/// directly; instead you can implement [`Dataset`].
 pub trait DataStep {
-    fn name(&self) -> String;
-    fn inspect_data(&self) -> ByFacet<DataProfile>;
-    fn inspect_vars(&self) -> ByFacet<ByField<VarProfile>>;
-    fn inspect_logs(&self) -> String;
+    fn name(&self) -> String {
+        std::any::type_name::<Self>().to_string()
+    }
+
+    fn inspect_vars(&self) -> ByFacet<ByField<VarProfile>> {
+        Default::default()
+    }
 }
-impl<T: Dataset + Imperfect> DataStep for T
-where
-    for<'a> &'static str: From<&'a <T as Imperfect>::Warning>,
-{
+impl<T: Dataset> DataStep for T {
     fn name(&self) -> String {
         Dataset::name(self)
     }
 
-    fn inspect_data(&self) -> ByFacet<DataProfile> {
-        Dataset::profile(self)
-    }
-
     fn inspect_vars(&self) -> ByFacet<ByField<VarProfile>> {
         Dataset::var_profiles(self)
-    }
-
-    fn inspect_logs(&self) -> String {
-        let counted: BTreeMap<String, isize> = Self::collect_logs()
-            .into_iter()
-            .map(|(warn, warnings)| (warn.to_string(), warnings.len() as isize))
-            .collect();
-
-        if counted.is_empty() {
-            String::new()
-        } else {
-            let name = std::any::type_name::<T>().split("::").last().unwrap();
-            element!(CountTable(name, counts: counted)).to_string()
-        }
     }
 }
 
@@ -416,15 +369,6 @@ impl<T: FromPartial> Source<T> for () {
 impl DataStep for () {
     fn name(&self) -> String {
         "(never)".to_string()
-    }
-    fn inspect_data(&self) -> ByFacet<DataProfile> {
-        Default::default()
-    }
-    fn inspect_vars(&self) -> ByFacet<ByField<VarProfile>> {
-        Default::default()
-    }
-    fn inspect_logs(&self) -> String {
-        Default::default()
     }
 }
 impl<T: FromPartial + Constrained + Row> Default for River<T>

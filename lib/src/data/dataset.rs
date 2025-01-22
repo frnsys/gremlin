@@ -1,11 +1,6 @@
 use std::collections::BTreeMap;
 
-use iocraft::{element, ElementExt};
-
-use crate::{
-    core::{Percent, Unit},
-    data::display::FacetedVarTables,
-};
+use crate::core::{Percent, Unit};
 
 use super::{
     profile::{profile, VarProfile},
@@ -154,6 +149,33 @@ macro_rules! non_dataset {
     };
 }
 
+#[macro_export]
+macro_rules! dataset {
+    ($name:ident, $row:ty) => {
+        dataset!($name, $row, String, |_row: &$row| { String::new() });
+    };
+
+    ($name:ident, $row:ty, $facet:ty, $facet_prop:expr) => {
+        #[derive(Debug, gremlin::Dataset)]
+        #[dataset(row = $row, facet = $facet)]
+        pub struct $name {
+            #[dataset(rows)]
+            rows: Vec<$row>,
+        }
+        impl $name {
+            pub fn load() -> Self {
+                Self {
+                    rows: <$row>::load_rows(),
+                }
+            }
+
+            fn get_row_facet(&self, row: &$row) -> $facet {
+                $facet_prop(row)
+            }
+        }
+    };
+}
+
 pub trait Dataset {
     type Row: Row;
     type Facet: Facet + 'static;
@@ -206,11 +228,6 @@ pub trait Dataset {
             .into_iter()
             .map(|(facet, profile)| (facet, profile.profiles))
             .collect()
-    }
-
-    fn display_profiles(&self) -> String {
-        let facet_profiles = self.profile();
-        element!(FacetedVarTables(name: self.name(), profiles: facet_profiles)).to_string()
     }
 }
 

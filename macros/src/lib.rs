@@ -886,21 +886,41 @@ pub fn derive_dataset(input: TokenStream) -> TokenStream {
         }
     }
 
-    // Generate the impl
-    let expanded = quote! {
-        impl gremlin::data::Dataset for #struct_name {
-            type Row = #row_type;
-            type Facet = #facet_type;
+    let expanded = match facet_type {
+        Some(facet_type) => {
+            quote! {
+                impl gremlin::data::Dataset for #struct_name {
+                    type Row = #row_type;
+                    type Facet = #facet_type;
 
-            fn rows(&self) -> impl Iterator<Item = &Self::Row> {
-                self.#rows_field.iter()
+                    fn rows(&self) -> impl Iterator<Item = &Self::Row> {
+                        self.#rows_field.iter()
+                    }
+
+                    fn faceted(&self) -> std::collections::BTreeMap<Self::Facet, Vec<&Self::Row>> {
+                        use gremlin::data::Rows;
+                        let hm = self
+                            .rows()
+                            .group_by(|row| self.get_row_facet(row));
+                        hm.into_iter().collect()
+                    }
+                }
             }
+        }
+        None => {
+            quote! {
+                impl gremlin::data::Dataset for #struct_name {
+                    type Row = #row_type;
+                    type Facet = String;
 
-            fn faceted(&self) -> std::collections::BTreeMap<Self::Facet, Vec<&Self::Row>> {
-                let hm = self
-                    .rows()
-                    .group_by(|row| self.get_row_facet(row));
-                hm.into_iter().collect()
+                    fn rows(&self) -> impl Iterator<Item = &Self::Row> {
+                        self.#rows_field.iter()
+                    }
+
+                    fn faceted(&self) -> std::collections::BTreeMap<Self::Facet, Vec<&Self::Row>> {
+                        Default::default()
+                    }
+                }
             }
         }
     };
