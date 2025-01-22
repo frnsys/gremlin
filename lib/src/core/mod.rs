@@ -9,7 +9,6 @@ mod var;
 use std::iter::Sum;
 
 use ahash::HashMap;
-pub use anyhow::Result as AnyResult;
 pub use array::Array;
 use enum_map::{Enum, EnumArray, EnumMap};
 use extend::ext;

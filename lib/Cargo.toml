@@ -6,7 +6,6 @@ edition = "2021"
 [dependencies]
 gremlin-macros = { path = "../macros" }
 tracing = "0.1.40"
-anyhow = "1.0.75"
 thiserror = "1.0.50"
 derive_more = "0.99.17"
 serde = { version = "1.0.189", features = ["derive"] }

@@ -4,14 +4,14 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::file::write_yaml;
+use crate::{data::DataError, file::write_yaml};
 use ahash::HashMap;
-use anyhow::Result;
 use lace::{prelude::*, update_handler::ProgressBar, Oracle};
 use polars::{io::RowCount, prelude::*};
 use rand::SeedableRng;
 use rand_xoshiro::Xoshiro256Plus;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tracing::{info, warn};
 
 #[cfg(feature = "plotting")]
@@ -19,6 +19,32 @@ use crate::plot::{CatScatterItem, Plots, ScatterItem, StaticChart, Symbol};
 
 use super::sampler::{Column, Sampler, SamplerError};
 use crate::data::impute::*;
+
+#[derive(Debug, Error)]
+pub enum DrawError {
+    #[error("Polars error: {0:?}")]
+    Polars(#[from] polars::prelude::PolarsError),
+
+    #[error("Glob error: {0:?}")]
+    Glob(#[from] glob::GlobError),
+
+    #[error("Data error: {0:?}")]
+    Data(#[from] DataError),
+
+    #[error("Sampler error: {0:?}")]
+    Sampler(#[from] SamplerError),
+
+    #[error("Lace metadata error: {0:?}")]
+    LaceMetadata(#[from] lace::metadata::Error),
+
+    #[error("Lace index error: {0:?}")]
+    LaceIndex(#[from] lace::error::IndexError),
+
+    #[error("Lace engine error: {0:?}")]
+    LaceEngine(#[from] lace::error::NewEngineError),
+}
+
+type DrawResult<T> = Result<T, DrawError>;
 
 /// The probabilistic ML model, for training.
 pub struct PmlModel {
@@ -70,7 +96,7 @@ impl PmlModel {
         csv_path: &Path,
         columns: &[ImputedColumn],
         save_dir: PathBuf,
-    ) -> Result<PmlModel> {
+    ) -> DrawResult<PmlModel> {
         let cols: Vec<_> = columns.iter().map(|col| col.name.to_string()).collect();
         let mut df = CsvReader::from_path(csv_path)?
             .has_header(true)
@@ -158,7 +184,7 @@ impl PmlModel {
     /// Plot the MCMC log-likelihoods of the model,
     /// to verify if the model has converged.
     #[cfg(feature = "plotting")]
-    pub fn plot_convergences(&self, save_path: &Path) -> Result<()> {
+    pub fn plot_convergences(&self, save_path: &Path) -> DrawResult<()> {
         let pattern = self.save_dir.join("*.diagnostics.csv");
         let paths = glob::glob(pattern.as_os_str().to_str().unwrap())
             .expect("Failed to read glob pattern")
@@ -177,7 +203,7 @@ impl PmlModel {
                     .collect();
                 Ok((i.to_string(), vals))
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<DrawResult<Vec<_>>>()?;
 
         let labels: Vec<_> = lines[0]
             .1
@@ -195,7 +221,7 @@ impl PmlModel {
     /// (specifically the [dependency probability](https://www.lace.dev/pcc/depprob.html))
     /// between two variables.
     #[cfg(feature = "plotting")]
-    pub fn plot_dep_matrix(&self, save_path: &Path) -> Result<()> {
+    pub fn plot_dep_matrix(&self, save_path: &Path) -> DrawResult<()> {
         let cols: Vec<_> = self.columns.iter().skip(1).collect();
         let oracle = Oracle::from_engine(self.engine.clone());
         let mut data = vec![];
@@ -248,7 +274,7 @@ impl PmlModel {
 }
 
 /// Load an existing engine or initialize a new one.
-fn prepare_engine(save_dir: &Path, df: DataFrame) -> Result<Engine> {
+fn prepare_engine(save_dir: &Path, df: DataFrame) -> DrawResult<Engine> {
     if save_dir.exists() {
         Ok(Engine::load(save_dir)?)
     } else {
@@ -323,7 +349,7 @@ pub fn plot_pml_samples(
     sample_cols: &[&str],
     plot_groups: &[Vec<&str>],
     plots: &mut Plots,
-) -> Result<()> {
+) -> DrawResult<()> {
     let df = CsvReader::from_path(pml_input_path)?
         .has_header(true)
         .finish()?;

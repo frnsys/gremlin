@@ -4,9 +4,10 @@
 //! on the learned distribution(s); these methods are more naive
 //! for when you need to impute values *before* fitting the `PmlModel`.
 
-use anyhow::Result;
 use polars::{lazy::dsl::*, prelude::*};
 use serde::{Deserialize, Serialize};
+
+use super::error::DataResult;
 
 /// Strategy to use for imputing missing values.
 /// This enum defines the relevant reference for
@@ -85,7 +86,7 @@ impl From<FillWith> for FillNullStrategy {
 /// values for `x`, so there is nothing to take the mean of. In this case
 /// we instead use the mean of `x` for the entire dataframe (which in this
 /// particular case is equivalent to the mean of the non-missing values of group A).
-pub fn impute(mut df: DataFrame, column: &str, strategy: &ImputeStrategy) -> Result<DataFrame> {
+pub fn impute(mut df: DataFrame, column: &str, strategy: &ImputeStrategy) -> DataResult<DataFrame> {
     // For imputing, ensure the column is float.
     df.with_column(df[column].cast(&DataType::Float64)?)?;
     match strategy {
@@ -145,7 +146,7 @@ pub fn impute(mut df: DataFrame, column: &str, strategy: &ImputeStrategy) -> Res
 mod tests {
     use super::*;
 
-    fn test_impute_all(strat: FillWith, expected: f32) -> Result<()> {
+    fn test_impute_all(strat: FillWith, expected: f32) -> DataResult<()> {
         let df = CsvReader::from_path("assets/tests/impute.csv")?
             .has_header(true)
             .finish()?;
@@ -162,37 +163,40 @@ mod tests {
     }
 
     #[test]
-    fn test_impute_all_mean() -> Result<()> {
+    fn test_impute_all_mean() -> DataResult<()> {
         let expected = (0. + 1. + 5. + 9. + 10.) / 5.;
         test_impute_all(FillWith::Mean, expected)
     }
 
     #[test]
-    fn test_impute_all_median() -> Result<()> {
+    fn test_impute_all_median() -> DataResult<()> {
         test_impute_all(FillWith::Median, 5.)
     }
 
     #[test]
-    fn test_impute_all_min() -> Result<()> {
+    fn test_impute_all_min() -> DataResult<()> {
         test_impute_all(FillWith::Min, 0.)
     }
 
     #[test]
-    fn test_impute_all_max() -> Result<()> {
+    fn test_impute_all_max() -> DataResult<()> {
         test_impute_all(FillWith::Max, 10.)
     }
 
     #[test]
-    fn test_impute_all_zero() -> Result<()> {
+    fn test_impute_all_zero() -> DataResult<()> {
         test_impute_all(FillWith::Zero, 0.)
     }
 
     #[test]
-    fn test_impute_all_one() -> Result<()> {
+    fn test_impute_all_one() -> DataResult<()> {
         test_impute_all(FillWith::One, 1.)
     }
 
-    fn test_impute_by_group(strat: FillWith, (ex_a, ex_b, ex_c): (f32, f32, f32)) -> Result<()> {
+    fn test_impute_by_group(
+        strat: FillWith,
+        (ex_a, ex_b, ex_c): (f32, f32, f32),
+    ) -> DataResult<()> {
         let df = CsvReader::from_path("assets/tests/impute.csv")?
             .has_header(true)
             .finish()?;
@@ -216,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn test_impute_group_mean() -> Result<()> {
+    fn test_impute_group_mean() -> DataResult<()> {
         let expected_a = (0. + 1.) / 2.;
         let expected_b = (5. + 10. + 9.) / 3.;
         let expected_c = (0. + 1. + 5. + 9. + 10.) / 5.;
@@ -224,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_impute_group_median() -> Result<()> {
+    fn test_impute_group_median() -> DataResult<()> {
         let expected_a = (0. + 1.) / 2.;
         let expected_b = 9.;
         let expected_c = 5.;
@@ -232,22 +236,22 @@ mod tests {
     }
 
     #[test]
-    fn test_impute_group_min() -> Result<()> {
+    fn test_impute_group_min() -> DataResult<()> {
         test_impute_by_group(FillWith::Min, (0., 5., 0.))
     }
 
     #[test]
-    fn test_impute_group_max() -> Result<()> {
+    fn test_impute_group_max() -> DataResult<()> {
         test_impute_by_group(FillWith::Max, (1., 10., 10.))
     }
 
     #[test]
-    fn test_impute_group_zero() -> Result<()> {
+    fn test_impute_group_zero() -> DataResult<()> {
         test_impute_by_group(FillWith::Zero, (0., 0., 0.))
     }
 
     #[test]
-    fn test_impute_group_one() -> Result<()> {
+    fn test_impute_group_one() -> DataResult<()> {
         test_impute_by_group(FillWith::One, (1., 1., 1.))
     }
 }

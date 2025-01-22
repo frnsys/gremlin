@@ -163,17 +163,18 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
     }
 
     if !synthetic_rows.is_empty() {
-        let names = synthetic_rows
+        let names: Vec<_> = synthetic_rows
             .iter()
-            .map(|func| func.segments.last().unwrap());
+            .map(|func| func.segments.last().unwrap().ident.to_string())
+            .collect();
         columns.push(quote! {
             vec![
-                #(stringify!(#names).to_string())*
+                #(#names.to_string(),)*
             ]
         });
         values.push(quote! {
             vec![
-                #(#synthetic_rows(self).as_f32())*
+                #(#synthetic_rows(self).as_f32(),)*
             ]
         });
     }
@@ -421,11 +422,19 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
 
         impl #partial_ident {
             #(pub fn #field_idents(&self) -> Result<&#field_types, gremlin::data::HydrateError> {
-                self.#field_idents.as_ref().ok_or(gremlin::data::HydrateError::MissingExpectedField(stringify!(#name), stringify!(#field_idents)))
+                self.#field_idents.as_ref().ok_or(gremlin::data::HydrateError::MissingExpectedField {
+                    name: stringify!(#name),
+                    field: stringify!(#field_idents),
+                    backtrace: std::backtrace::Backtrace::force_capture(),
+                })
             })*
 
             #(pub fn #field_take_idents(&mut self) -> Result<#field_types, gremlin::data::HydrateError> {
-                self.#field_idents.take().ok_or(gremlin::data::HydrateError::MissingExpectedField(stringify!(#name), stringify!(#field_idents)))
+                self.#field_idents.take().ok_or(gremlin::data::HydrateError::MissingExpectedField {
+                    name: stringify!(#name),
+                    field: stringify!(#field_idents),
+                    backtrace: std::backtrace::Backtrace::force_capture(),
+                })
             })*
         }
 

@@ -28,10 +28,9 @@
 //! to be hard failures but rather warnings about potential data quality issues to help identify
 //! where problematic values may be coming from. For hard failures instead look to [`Constrained`].
 
-use anyhow::Error as AnyhowError;
 use iocraft::{element, ElementExt};
 use itertools::Itertools;
-use std::{collections::BTreeMap, fmt::Debug, io::Write, path::Path};
+use std::{backtrace::Backtrace, collections::BTreeMap, fmt::Debug, io::Write, path::Path};
 use thiserror::Error;
 
 use crate::data::display::CountTable;
@@ -255,14 +254,16 @@ where
                 }
             }
             let incomplete_table =
-                element!(CountTable(name: "Incomplete".to_string(), total: Some(total), counts: error_counts))
+                element!(CountTable(name: "Incomplete".to_string(), total: Some(total), counts: error_counts.clone()))
                     .to_string();
             writeln!(buffer, "{}", incomplete_table)?;
 
             if ignore_incomplete {
                 tracing::warn!("{} incomplete items, ignoring.", incomplete.len());
+                tracing::warn!("Missing fields: {:#?}", error_counts);
             } else {
                 tracing::error!("{} incomplete items.", incomplete.len());
+                tracing::error!("Missing fields: {:#?}", error_counts);
                 return Err(HydrateError::Many(incomplete));
             }
             report.n_incomplete = incomplete.len();
@@ -406,13 +407,52 @@ pub trait Source<T: FromPartial>: Debug + DataStep {
     fn generate(&self) -> Result<Vec<T::Partial>, HydrateError>;
 }
 
+/// Dummy source, if a placeholder is needed.
+impl<T: FromPartial> Source<T> for () {
+    fn generate(&self) -> Result<Vec<<T as FromPartial>::Partial>, HydrateError> {
+        Ok(vec![])
+    }
+}
+impl DataStep for () {
+    fn name(&self) -> String {
+        "(never)".to_string()
+    }
+    fn inspect_data(&self) -> ByFacet<DataProfile> {
+        Default::default()
+    }
+    fn inspect_vars(&self) -> ByFacet<ByField<VarProfile>> {
+        Default::default()
+    }
+    fn inspect_logs(&self) -> String {
+        Default::default()
+    }
+}
+impl<T: FromPartial + Constrained + Row> Default for River<T>
+where
+    T::Partial: Row,
+{
+    fn default() -> Self {
+        Self {
+            name: "(river-stub)".into(),
+            source: Box::new(()),
+            tributaries: vec![],
+            strictness: Strictness::IgnoreAll,
+            references: Default::default(),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum HydrateError {
     #[error("The following fields for {0} were empty: {1:?}.\n  You may need to add a tributary to fill the field(s).")]
     EmptyFields(&'static str, Vec<&'static str>),
 
-    #[error("The following field for {0} is required to fill other fields: {1}")]
-    MissingExpectedField(&'static str, &'static str),
+    #[error("The following field for {name} is required to fill other fields: {field}")]
+    MissingExpectedField {
+        name: &'static str,
+        field: &'static str,
+        backtrace: Backtrace,
+    },
 
     #[error("An item had invalid values: {0:?}")]
     InvalidValues(Vec<Breach>),
@@ -422,9 +462,6 @@ pub enum HydrateError {
 
     #[error("IO error: {0:?}")]
     IO(#[from] std::io::Error),
-
-    #[error(transparent)]
-    Other(#[from] AnyhowError),
 }
 
 #[cfg(test)]

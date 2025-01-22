@@ -3,7 +3,12 @@ use std::{marker::PhantomData, path::Path};
 use generic_array::{functional::FunctionalSequence, GenericArray};
 use itertools::Itertools;
 
-use crate::core::{Annual, Interval, Numeric, TimeSeries};
+use crate::{
+    core::{Annual, Interval, Numeric, TimeSeries},
+    data::error::DataError,
+};
+
+use super::error::DataResult;
 
 /// Define how to handle missing data.
 pub enum MissingStrategy<T: Default + Clone> {
@@ -32,7 +37,7 @@ pub fn read_series_csv<T, S, N: Numeric, I: Interval>(
     value_col: &str,
     time_cols: T,
     path: &Path,
-) -> anyhow::Result<TimeSeries<N, I>>
+) -> DataResult<TimeSeries<N, I>>
 where
     T: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -45,7 +50,7 @@ pub fn read_series_csv_str<T, S, N: Numeric, I: Interval>(
     value_col: &str,
     time_cols: T,
     s: &str,
-) -> anyhow::Result<TimeSeries<N, I>>
+) -> DataResult<TimeSeries<N, I>>
 where
     T: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -58,7 +63,7 @@ pub fn read_series<T, S, N: Numeric, I: Interval, R: std::io::Read>(
     value_col: &str,
     time_cols: T,
     reader: csv::Reader<R>,
-) -> anyhow::Result<TimeSeries<N, I>>
+) -> DataResult<TimeSeries<N, I>>
 where
     T: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -125,19 +130,13 @@ impl<N: Numeric, I: Interval> TimeSeriesReader<N, I> {
     }
 
     /// Read the time series from a string.
-    pub fn from_str(
-        &self,
-        s: &str,
-    ) -> anyhow::Result<Vec<(I::Key, N)>> {
+    pub fn from_str(&self, s: &str) -> DataResult<Vec<(I::Key, N)>> {
         let reader = csv::Reader::from_reader(s.as_bytes());
         self.read_impl(reader)
     }
 
     /// Read the time series from a file.
-    pub fn read(
-        &self,
-        path: &Path,
-    ) -> anyhow::Result<Vec<(I::Key, N)>> {
+    pub fn read(&self, path: &Path) -> DataResult<Vec<(I::Key, N)>> {
         let reader = csv::Reader::from_path(path)?;
         self.read_impl(reader)
     }
@@ -145,14 +144,12 @@ impl<N: Numeric, I: Interval> TimeSeriesReader<N, I> {
     fn read_impl<R: std::io::Read>(
         &self,
         mut reader: csv::Reader<R>,
-    ) -> anyhow::Result<Vec<(I::Key, N)>> {
+    ) -> DataResult<Vec<(I::Key, N)>> {
         let headers = reader.headers().expect("Should have headers");
         let time_idxs: GenericArray<usize, I::KeySize> = headers
             .iter()
             .enumerate()
-            .filter(|(_, field)| {
-                self.time_cols.contains(&field.to_string())
-            })
+            .filter(|(_, field)| self.time_cols.contains(&field.to_string()))
             .map(|(i, _)| i)
             .collect();
         assert_eq!(time_idxs.len(), self.time_cols.len());
@@ -165,23 +162,16 @@ impl<N: Numeric, I: Interval> TimeSeriesReader<N, I> {
         let mut results = vec![];
         for result in reader.records() {
             let record = result?;
-            let raw_keys: GenericArray<String, I::KeySize> = time_idxs
-                .iter()
-                .map(|i| record[*i].to_string())
-                .collect();
+            let raw_keys: GenericArray<String, I::KeySize> =
+                time_idxs.iter().map(|i| record[*i].to_string()).collect();
             let time = raw_keys.map(|k| k.parse().unwrap());
-            let time: I::Key =
-                time.into_iter().collect_tuple().unwrap();
+            let time: I::Key = time.into_iter().collect_tuple().unwrap();
             let value = record.get(value_idx);
             match value {
                 Some(value) => {
-                    let parsed =
-                        value.parse::<N>().map_err(|_err| {
-                            anyhow::Error::msg(format!(
-                                "Failed to parse value: {:?}",
-                                value
-                            ))
-                        })?;
+                    let parsed = value
+                        .parse::<N>()
+                        .map_err(|_err| DataError::Parse(format!("{:?}", value)))?;
                     results.push((time, parsed));
                 }
                 None => match &self.missing_strategy {

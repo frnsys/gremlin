@@ -12,6 +12,8 @@
 //! - Helpers for automating some aspects of model documentation.
 //! - Helpers for capturing model outputs.
 
+#![feature(error_generic_member_access)]
+
 pub mod core;
 pub mod data;
 pub mod docs;

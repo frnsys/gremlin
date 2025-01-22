@@ -5,11 +5,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Result;
 use fs_err::File;
 use rmp_serde::{Deserializer, Serializer};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tracing::info;
+
+use crate::data::DataError;
+
+use super::error::DataResult;
 
 /// Use this to process/generate a dataset
 /// or load from cached results if available.
@@ -28,18 +31,22 @@ use tracing::info;
 /// ```
 /// cached_or("solar_capacity_factors", flows::solar_capacity_factors)?;
 /// ```
-pub fn cached_or<T: DeserializeOwned + Serialize, P: AsRef<Path>>(
+pub fn cached_or<
+    T: DeserializeOwned + Serialize,
+    P: AsRef<Path>,
+    E: std::error::Error + Send + Sync + 'static,
+>(
     dir: P,
     name: &str,
-    f: impl Fn() -> Result<T>,
-) -> Result<T> {
+    f: impl Fn() -> Result<T, E>,
+) -> DataResult<T> {
     let path = cached_path(&dir, name)?;
     if path.exists() {
         info!("Cached file found: {:#?}", path);
         cached(&dir, name)
     } else {
         info!("Cached file not found, generating: {:#?}", path);
-        let val = f()?;
+        let val = f().map_err(|err| DataError::CacheFunction(Box::new(err)))?;
         recache(&dir, name, val)
     }
 }
@@ -49,7 +56,7 @@ pub fn recache<T: DeserializeOwned + Serialize, P: AsRef<Path>>(
     dir: &P,
     name: &str,
     data: T,
-) -> Result<T> {
+) -> DataResult<T> {
     let path = cached_path(dir, name)?;
     let file = File::create(path)?;
     let mut writer = BufWriter::new(file);
@@ -58,7 +65,7 @@ pub fn recache<T: DeserializeOwned + Serialize, P: AsRef<Path>>(
 }
 
 /// Load cached data. Will return `Err` if the cached file doesn't exist.
-pub fn cached<T: DeserializeOwned, P: AsRef<Path>>(dir: &P, name: &str) -> Result<T> {
+pub fn cached<T: DeserializeOwned, P: AsRef<Path>>(dir: &P, name: &str) -> DataResult<T> {
     let path = cached_path(dir, name)?;
     let file = File::open(path)?;
     let reader = BufReader::new(file);
@@ -67,7 +74,7 @@ pub fn cached<T: DeserializeOwned, P: AsRef<Path>>(dir: &P, name: &str) -> Resul
     Ok(val)
 }
 
-fn cached_path<P: AsRef<Path>>(dir: &P, name: &str) -> Result<PathBuf> {
+fn cached_path<P: AsRef<Path>>(dir: &P, name: &str) -> DataResult<PathBuf> {
     let dir: &Path = dir.as_ref();
     if !dir.exists() {
         fs_err::create_dir_all(dir)?;

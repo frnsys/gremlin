@@ -6,7 +6,6 @@ mod path;
 use fs_err::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
 use itertools::{multizip, Itertools};
 use serde::{de::DeserializeOwned, Serialize};
 use serde_yaml::{Number, Value};
@@ -14,33 +13,38 @@ use serde_yaml::{Number, Value};
 pub use path::*;
 use thiserror::Error;
 
+use crate::data::DataResult;
+
 pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> impl Iterator<Item = T> {
     let path = path.as_ref();
     let mut reader = csv::Reader::from_path(path)
-        .with_context(|| path.display().to_string())
+        .inspect_err(|_err| eprintln!("Error reading CSV: {}", path.display().to_string()))
         .unwrap();
     let headers = reader.headers().unwrap().clone();
     let src = path.display().to_string();
 
     let display = path.display().to_string();
     reader.into_records().map(move |rec| {
-        let rec = rec.with_context(|| display.clone()).unwrap();
+        let rec = rec
+            .inspect_err(|_err| eprintln!("Error reading CSV record: {}", display))
+            .unwrap();
         rec.deserialize(Some(&headers))
-            .inspect_err(|err| match err.kind() {
-                csv::ErrorKind::Deserialize { err, .. } => {
-                    if let Some(idx) = err.field() {
-                        eprintln!("Field: {:?}", &headers[idx as usize]);
+            .inspect_err(|err| {
+                match err.kind() {
+                    csv::ErrorKind::Deserialize { err, .. } => {
+                        if let Some(idx) = err.field() {
+                            eprintln!("Field: {:?}", &headers[idx as usize]);
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
-            })
-            .with_context(|| {
+
                 let rows = headers
                     .iter()
                     .zip(rec.iter())
                     .map(|(col, val)| format!("{}: {:?}", col, val))
                     .join("\n");
-                format!("Source: {src}\n{rows}")
+                eprintln!("Source: {src}\n{rows}")
             })
             .unwrap()
     })
@@ -56,7 +60,7 @@ pub fn read_csv_str<T: DeserializeOwned>(s: &str) -> impl Iterator<Item = T> + '
     reader.into_records().map(move |rec| {
         let rec = rec.unwrap();
         rec.deserialize(Some(&headers))
-            .with_context(|| format!("{rec:?}"))
+            .inspect_err(|_err| eprintln!("{rec:?}"))
             .unwrap()
     })
 }
@@ -64,10 +68,7 @@ pub fn read_csv_str<T: DeserializeOwned>(s: &str) -> impl Iterator<Item = T> + '
 /// Read raw rows from a CSV, specifying the column names.
 /// The column order doesn't need to match what's in the CSV;
 /// they will automatically be rearranged to match.
-pub fn read_rows<const N: usize>(
-    path: &Path,
-    columns: &[&str; N],
-) -> anyhow::Result<Vec<[String; N]>> {
+pub fn read_rows<const N: usize>(path: &Path, columns: &[&str; N]) -> DataResult<Vec<[String; N]>> {
     let mut rdr = csv::Reader::from_path(path)?;
     let headers = rdr.headers().expect("Should have headers");
     let idxs: [usize; N] = columns.map(|col| {
@@ -273,7 +274,7 @@ pub fn write_csv<T: Serialize + std::fmt::Debug>(path: &Path, items: &[T]) {
     let mut w = csv::Writer::from_path(path).unwrap();
     for item in items {
         w.serialize(item)
-            .with_context(|| format!("{:?}", item))
+            .inspect_err(|_err| eprintln!("{:?}", item))
             .unwrap();
     }
     w.flush().unwrap();

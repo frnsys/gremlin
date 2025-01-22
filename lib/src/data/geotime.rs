@@ -5,35 +5,30 @@
 
 use std::sync::LazyLock;
 
-use anyhow::Result;
 use chrono::{DateTime, TimeZone};
 pub use chrono_tz::Tz;
 use csv::{Reader, ReaderBuilder};
 use geo::{point, prelude::HaversineDistance, Point};
 use time::OffsetDateTime;
 
-const DEFAULT_ZONES: &str =
-    include_str!("../../assets/zone1970.tab");
-static ZONES: LazyLock<ZoneInfo> =
-    LazyLock::new(ZoneInfo::default);
+use super::error::DataResult;
+
+const DEFAULT_ZONES: &str = include_str!("../../assets/zone1970.tab");
+static ZONES: LazyLock<ZoneInfo> = LazyLock::new(ZoneInfo::default);
 
 pub fn get_zone(coords: (f64, f64)) -> Tz {
     let (zone, _) = ZONES.find_closest_zone(coords.0, coords.1);
     zone
 }
 
-pub fn to_local(
-    dt: &OffsetDateTime,
-    zone: &Tz,
-) -> OffsetDateTime {
+pub fn to_local(dt: &OffsetDateTime, zone: &Tz) -> OffsetDateTime {
     let ns = dt.unix_timestamp_nanos();
     let ndt = DateTime::from_timestamp_nanos(ns as i64);
     let local = zone.from_utc_datetime(&ndt.naive_utc());
     OffsetDateTime::from_unix_timestamp_nanos(
         local
             .timestamp_nanos_opt()
-            .expect("We have a valid unix timestamp")
-            as i128,
+            .expect("We have a valid unix timestamp") as i128,
     )
     .expect("We have a valid unix timestamp")
 }
@@ -51,9 +46,7 @@ struct ZoneInfo {
     pub zones: Vec<Zone>,
 }
 impl ZoneInfo {
-    fn from_reader<R: std::io::Read>(
-        mut reader: Reader<R>,
-    ) -> Result<ZoneInfo> {
+    fn from_reader<R: std::io::Read>(mut reader: Reader<R>) -> DataResult<ZoneInfo> {
         let mut zones = vec![];
         while let Some(result) = reader.records().next() {
             let record = result?;
@@ -61,9 +54,7 @@ impl ZoneInfo {
             let timezone_name: String = record[2].parse()?;
             let zone = Zone {
                 coordinates,
-                timezone: timezone_name
-                    .parse()
-                    .expect("A valid timezone name"),
+                timezone: timezone_name.parse().expect("A valid timezone name"),
             };
 
             zones.push(zone);
@@ -73,14 +64,9 @@ impl ZoneInfo {
     }
 
     /// Calculate the distance between a given location and each zone and return the closest.
-    pub fn find_closest_zone(
-        &self,
-        lat: f64,
-        lon: f64,
-    ) -> (Tz, f64) {
+    pub fn find_closest_zone(&self, lat: f64, lon: f64) -> (Tz, f64) {
         let location = point!(x: lon, y: lat);
-        let mut timezone: Tz =
-            "UTC".parse().expect("This is a valid timezone");
+        let mut timezone: Tz = "UTC".parse().expect("This is a valid timezone");
         let mut distance = f64::MAX;
 
         for z in &self.zones {
@@ -108,28 +94,21 @@ impl Default for ZoneInfo {
 }
 
 /// Parse a longitude or latitude ISO-6709 string into `f64`.
-fn parse_coordinate_value(
-    valstr: &str,
-    separator: usize,
-) -> Result<f64> {
+fn parse_coordinate_value(valstr: &str, separator: usize) -> DataResult<f64> {
     let whole: f64 = valstr[..separator].parse()?;
     let fractionstr: &str = &valstr[separator..];
     let fraction: f64 = fractionstr.parse()?;
     let value: f64 = if whole >= 0.0 {
-        whole
-            + fraction
-                / f64::powf(10.0, fractionstr.len() as f64)
+        whole + fraction / f64::powf(10.0, fractionstr.len() as f64)
     } else {
-        whole
-            - fraction
-                / f64::powf(10.0, fractionstr.len() as f64)
+        whole - fraction / f64::powf(10.0, fractionstr.len() as f64)
     };
 
     Ok(value)
 }
 
 /// Parse coordinates from ISO-6709 string to `geo::Point`.
-fn parse_coordinates(coordinates: &str) -> Result<Point> {
+fn parse_coordinates(coordinates: &str) -> DataResult<Point> {
     let mut i = 1;
 
     for c in coordinates.chars().skip(1) {
