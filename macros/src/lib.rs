@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
+use proc_macro_crate::FoundCrate;
 use quote::{format_ident, quote, ToTokens};
 use syn::{
     bracketed,
@@ -12,9 +13,20 @@ use syn::{
     parse::{Parse, ParseStream, Result},
     parse_macro_input,
     punctuated::Punctuated,
-    Constraint, Data, DeriveInput, Expr, ExprLit, Fields, GenericArgument, Ident, Lit, Meta, Path,
-    PathArguments, Token, Type, TypePath,
+    Constraint, Data, DeriveInput, Expr, ExprLit, Fields, GenericArgument, Ident, Lit, Meta,
+    MetaNameValue, Path, PathArguments, Token, Type, TypePath,
 };
+
+fn resolve_crate_name() -> TokenStream2 {
+    match proc_macro_crate::crate_name("gremlin") {
+        Ok(FoundCrate::Itself) => quote!(crate),
+        Ok(FoundCrate::Name(name)) => {
+            let ident = syn::Ident::new(&name, proc_macro2::Span::call_site());
+            quote!(#ident)
+        }
+        Err(_) => panic!("Could not find crate `gremlin`"),
+    }
+}
 
 /// The `HasSchema` derive marco,
 /// implementing [`HasSchema`](../gremlin/docs/trait.HasSchema.html),
@@ -22,6 +34,7 @@ use syn::{
 /// CSV schema for deserializing to this struct.
 #[proc_macro_derive(HasSchema, attributes(serde))]
 pub fn derive_has_schema(input: TokenStream) -> TokenStream {
+    let gremlin = resolve_crate_name();
     let input = parse_macro_input!(input as DeriveInput);
 
     let name = input.ident;
@@ -62,7 +75,7 @@ pub fn derive_has_schema(input: TokenStream) -> TokenStream {
 
         if is_flattened {
             quote! {
-                <#field_type as gremlin::docs::HasSchema>::schema().into_iter().map(|(name, typ, f_docs)| {
+                <#field_type as #gremlin::docs::HasSchema>::schema().into_iter().map(|(name, typ, f_docs)| {
                     (format!("{}.{}", #field_name, name), typ, format!("{} : {}", #docs.trim().trim_right_matches(".").to_string(), f_docs))
                 }).collect::<Vec<_>>()
             }
@@ -75,7 +88,7 @@ pub fn derive_has_schema(input: TokenStream) -> TokenStream {
     .collect::<Vec<TokenStream2>>();
 
     let expanded = quote! {
-        impl gremlin::docs::HasSchema for #name {
+        impl #gremlin::docs::HasSchema for #name {
             fn schema() -> Vec<(String, &'static str, String)> {
                 vec![
                     #(#schema_fields),*
@@ -107,6 +120,7 @@ fn is_vec_type(ty: &Type) -> bool {
 /// that implements `AsRowValue`.
 #[proc_macro_derive(Row, attributes(row, facet))]
 pub fn derive_row(input: TokenStream) -> TokenStream {
+    let gremlin = resolve_crate_name();
     let input = parse_macro_input!(input as DeriveInput);
     let struct_name = input.ident;
 
@@ -140,7 +154,7 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
                     // Handle nested Row types
                     let field_type = &field.ty;
                     columns.push(quote! {
-                        <#field_type as gremlin::data::Row>::columns()
+                        <#field_type as #gremlin::data::Row>::columns()
                             .into_iter()
                             .map(|col| if col.is_empty() {
                                 format!("{}", #row_field)
@@ -149,7 +163,7 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
                             })
                     });
                     values.push(quote! {
-                        <#field_type as gremlin::data::Row>::values(&self.#field_name)
+                        <#field_type as #gremlin::data::Row>::values(&self.#field_name)
                     });
                 }
 
@@ -181,7 +195,7 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
 
     // Generate the impl
     let expanded = quote! {
-        impl gremlin::data::Row for #struct_name {
+        impl #gremlin::data::Row for #struct_name {
             fn columns() -> Vec<String> {
                 let mut cols = Vec::new();
                 #(std::iter::Extend::extend(&mut cols, #columns);)*
@@ -207,6 +221,7 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
 ///
 #[proc_macro_derive(Partial, attributes(partial))]
 pub fn partial_struct(input: TokenStream) -> TokenStream {
+    let gremlin = resolve_crate_name();
     let input = parse_macro_input!(input as DeriveInput);
 
     let name = input.ident; // Original struct name
@@ -256,9 +271,9 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                     let field_type = &f.ty;
                     row_fields.push(quote! {
                         self.#ident.as_ref().map_or_else(|| {
-                            <#field_type as gremlin::data::Row>::columns()
+                            <#field_type as #gremlin::data::Row>::columns()
                                 .iter().map(|_| f32::NAN).collect()
-                        }, <#field_type as gremlin::data::Row>::values)
+                        }, <#field_type as #gremlin::data::Row>::values)
                     });
                 }
 
@@ -373,7 +388,7 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
 
     let row_impl = if derive_partial_row {
         quote! {
-            impl gremlin::data::Row for #partial_ident {
+            impl #gremlin::data::Row for #partial_ident {
                 fn columns() -> Vec<String> {
                     #name::columns()
                 }
@@ -421,16 +436,16 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
         }
 
         impl #partial_ident {
-            #(pub fn #field_idents(&self) -> Result<&#field_types, gremlin::data::HydrateError> {
-                self.#field_idents.as_ref().ok_or(gremlin::data::HydrateError::MissingExpectedField {
+            #(pub fn #field_idents(&self) -> Result<&#field_types, #gremlin::data::HydrateError> {
+                self.#field_idents.as_ref().ok_or(#gremlin::data::HydrateError::MissingExpectedField {
                     name: stringify!(#name),
                     field: stringify!(#field_idents),
                     backtrace: std::backtrace::Backtrace::force_capture(),
                 })
             })*
 
-            #(pub fn #field_take_idents(&mut self) -> Result<#field_types, gremlin::data::HydrateError> {
-                self.#field_idents.take().ok_or(gremlin::data::HydrateError::MissingExpectedField {
+            #(pub fn #field_take_idents(&mut self) -> Result<#field_types, #gremlin::data::HydrateError> {
+                self.#field_idents.take().ok_or(#gremlin::data::HydrateError::MissingExpectedField {
                     name: stringify!(#name),
                     field: stringify!(#field_idents),
                     backtrace: std::backtrace::Backtrace::force_capture(),
@@ -438,7 +453,7 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
             })*
         }
 
-        impl gremlin::data::Partial for #partial_ident {
+        impl #gremlin::data::Partial for #partial_ident {
             fn missing_fields(&self) -> Vec<&'static str> {
                 let mut missing = vec![];
                 #(if self.#field_idents.is_none() {
@@ -469,10 +484,10 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl gremlin::data::FromPartial for #name {
+        impl #gremlin::data::FromPartial for #name {
             type Partial = #partial_ident;
 
-            fn from(mut partial: Self::Partial) -> Result<Self, gremlin::data::HydrateError> {
+            fn from(mut partial: Self::Partial) -> Result<Self, #gremlin::data::HydrateError> {
                 let mut missing_fields = Vec::new();
 
                 #(
@@ -482,7 +497,7 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                 )*
 
                 if !missing_fields.is_empty() {
-                    return Err(gremlin::data::HydrateError::EmptyFields(stringify!(#name), missing_fields));
+                    return Err(#gremlin::data::HydrateError::EmptyFields(stringify!(#name), missing_fields));
                 }
 
                 Ok(#name {
@@ -693,6 +708,7 @@ pub fn has_variants_derive(input: TokenStream) -> TokenStream {
 
 #[proc_macro_derive(Constrained, attributes(constraint, constrained))]
 pub fn derive_constrained(input: TokenStream) -> TokenStream {
+    let gremlin = resolve_crate_name();
     let input = parse_macro_input!(input as DeriveInput);
     let struct_name = &input.ident;
 
@@ -720,10 +736,13 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
         let mut allow_none = false;
         for attr in &field.attrs {
             if attr.path().is_ident("constraint") {
-                if let Meta::Path(path) = &attr.meta {
-                    if path.is_ident("allow_none") {
-                        allow_none = true;
-                    }
+                if matches!(attr.meta, Meta::List(_)) {
+                    let _ = attr.parse_nested_meta(|meta| {
+                        if meta.path.is_ident("allow_none") {
+                            allow_none = true;
+                        }
+                        Ok(())
+                    });
                 }
             }
         }
@@ -731,6 +750,14 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
         for attr in field.attrs {
             if attr.path().is_ident("constraint") {
                 match attr.meta {
+                    Meta::List(list) => {
+                        if let Ok(meta) = syn::parse2::<MetaNameValue>(list.tokens) {
+                            let constraint = meta.path.get_ident().unwrap();
+                            let value = meta.value;
+                            constraints
+                                .push(quote! { #gremlin::data::Constraint::#constraint(#value) });
+                        }
+                    }
                     Meta::Path(path) => {
                         if path.is_ident("allow_none") {
                             // `allow_none` handled above.
@@ -744,7 +771,7 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
                             field_validations.push(quote! {
                                 if let Some(value) = &self.#field_name {
                                     if !#function(value) {
-                                        errors.push(gremlin::data::Breach {
+                                        errors.push(#gremlin::data::Breach {
                                             field: stringify!(#field_name).to_string(),
                                             constraint: stringify!(#function).to_string(),
                                             value: value.to_string(),
@@ -755,7 +782,7 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
                         } else {
                             field_validations.push(quote! {
                                 if !#function(&self.#field_name) {
-                                    errors.push(gremlin::data::Breach {
+                                    errors.push(#gremlin::data::Breach {
                                         field: stringify!(#field_name).to_string(),
                                         constraint: stringify!(#function).to_string(),
                                         value: self.#field_name.to_string(),
@@ -767,16 +794,16 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
                     Meta::NameValue(meta) => {
                         let constraint = meta.path.get_ident().unwrap();
                         let value = meta.value;
-                        constraints.push(quote! { gremlin::data::Constraint::#constraint(#value) });
+                        constraints
+                            .push(quote! { #gremlin::data::Constraint::#constraint(#value) });
                     }
-                    _ => (),
                 }
             } else if attr.path().is_ident("constrained") {
                 // Allow `None` values to pass.
                 if allow_none {
                     field_validations.push(quote! {
                         if let Some(value) = &self.#field_name {
-                            for mut err in gremlin::data::Constrained::validate(value) {
+                            for mut err in #gremlin::data::Constrained::validate(value) {
                                 err.field = format!("{}.{}", stringify!(#field_name), err.field);
                                 errors.push(err);
                             }
@@ -784,7 +811,7 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
                     });
                 } else {
                     field_validations.push(quote! {
-                        for mut err in gremlin::data::Constrained::validate(&self.#field_name) {
+                        for mut err in #gremlin::data::Constrained::validate(&self.#field_name) {
                             err.field = format!("{}.{}", stringify!(#field_name), err.field);
                             errors.push(err);
                         }
@@ -800,7 +827,7 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
                     if let Some(value) = &self.#field_name {
                         for c in [#(#constraints),*] {
                             if !c.validate(f32::from(*value)) {
-                                errors.push(gremlin::data::Breach {
+                                errors.push(#gremlin::data::Breach {
                                     field: stringify!(#field_name).to_string(),
                                     constraint: c.to_string(),
                                     value: value.to_string(),
@@ -813,7 +840,7 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
                 field_validations.push(quote! {
                     for c in [#(#constraints),*] {
                         if !c.validate(f32::from(self.#field_name)) {
-                            errors.push(gremlin::data::Breach {
+                            errors.push(#gremlin::data::Breach {
                                 field: stringify!(#field_name).to_string(),
                                 constraint: c.to_string(),
                                 value: self.#field_name.to_string(),
@@ -826,8 +853,8 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
     }
 
     let expanded = quote! {
-        impl gremlin::data::Constrained for #struct_name {
-            fn validate(&self) -> Vec<gremlin::data::Breach> {
+        impl #gremlin::data::Constrained for #struct_name {
+            fn validate(&self) -> Vec<#gremlin::data::Breach> {
                 let mut errors = vec![];
                 #(#field_validations)*
                 errors
@@ -840,6 +867,7 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
 
 #[proc_macro_derive(Dataset, attributes(dataset))]
 pub fn derive_dataset(input: TokenStream) -> TokenStream {
+    let gremlin = resolve_crate_name();
     let input = parse_macro_input!(input as DeriveInput);
     let struct_name = input.ident;
 
@@ -889,7 +917,7 @@ pub fn derive_dataset(input: TokenStream) -> TokenStream {
     let expanded = match facet_type {
         Some(facet_type) => {
             quote! {
-                impl gremlin::data::Dataset for #struct_name {
+                impl #gremlin::data::Dataset for #struct_name {
                     type Row = #row_type;
                     type Facet = #facet_type;
 
@@ -898,7 +926,7 @@ pub fn derive_dataset(input: TokenStream) -> TokenStream {
                     }
 
                     fn faceted(&self) -> std::collections::BTreeMap<Self::Facet, Vec<&Self::Row>> {
-                        use gremlin::data::Rows;
+                        use #gremlin::data::Rows;
                         let hm = self
                             .rows()
                             .group_by(|row| self.get_row_facet(row));
@@ -909,7 +937,7 @@ pub fn derive_dataset(input: TokenStream) -> TokenStream {
         }
         None => {
             quote! {
-                impl gremlin::data::Dataset for #struct_name {
+                impl #gremlin::data::Dataset for #struct_name {
                     type Row = #row_type;
                     type Facet = String;
 

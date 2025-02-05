@@ -146,7 +146,7 @@ impl StepResult {
     }
 }
 
-impl<T: FromPartial + Constrained + Row> River<T>
+impl<T: FromPartial + Constrained + Row + Debug> River<T>
 where
     T::Partial: Row + Constrained,
 {
@@ -256,6 +256,7 @@ where
         );
         let items = items.into_iter().map(|item| {
             let errs = item.validate();
+            println!("{:?}", item);
             if errs.is_empty() {
                 Ok(item)
             } else {
@@ -410,7 +411,7 @@ pub enum HydrateError {
 
 #[cfg(test)]
 mod tests {
-    use gremlin_macros::{Partial, Row};
+    use gremlin_macros::{Constrained, Partial, Row};
 
     use crate::data::AsRowValue;
 
@@ -418,10 +419,11 @@ mod tests {
 
     #[test]
     fn test_river() {
-        #[derive(Default, Partial, Row)]
-        #[partial(row)]
+        #[derive(Debug, Default, Partial, Constrained, Row)]
+        #[partial(row, constrained)]
         struct Target {
             #[row]
+            #[constraint(GreaterThan = 0.)]
             field_a: f32,
 
             #[row]
@@ -429,18 +431,6 @@ mod tests {
 
             #[row]
             field_c: f32,
-        }
-        impl Constrained for Target {
-            fn validate(&self) -> Vec<Breach> {
-                if self.field_a < 0.0 {
-                    return vec![InvalidValue {
-                        field: "field_a".into(),
-                        value: self.field_a.to_string(),
-                        constraint: "Must be gte 0.".into(),
-                    }];
-                }
-                vec![]
-            }
         }
 
         #[derive(Debug, Clone, Row)]
@@ -494,6 +484,7 @@ mod tests {
             source: Box::new(x_set.clone()),
             tributaries: vec![],
             strictness: Strictness::Strict,
+            ..Default::default()
         };
         let res = river.run(None);
         assert!(res.is_err());
@@ -503,8 +494,9 @@ mod tests {
             source: Box::new(x_set.clone()),
             tributaries: vec![],
             strictness: Strictness::IgnoreAll,
+            ..Default::default()
         };
-        let res = river.run(None).unwrap();
+        let (res, _) = river.run(None).unwrap();
         assert!(res.is_empty());
 
         // Fails, as we have an invalid `field_a` value.
@@ -512,6 +504,7 @@ mod tests {
             source: Box::new(x_set.clone()),
             tributaries: vec![Box::new(y_set.clone())],
             strictness: Strictness::Strict,
+            ..Default::default()
         };
         let res = river.run(None);
         assert!(res.is_err());
@@ -521,8 +514,9 @@ mod tests {
             source: Box::new(x_set.clone()),
             tributaries: vec![Box::new(y_set.clone())],
             strictness: Strictness::IgnoreAll,
+            ..Default::default()
         };
-        let res = river.run(None).unwrap();
+        let (res, _) = river.run(None).unwrap();
         assert_eq!(res.len(), 1);
 
         // Set to valid value.
@@ -531,8 +525,9 @@ mod tests {
             source: Box::new(x_set),
             tributaries: vec![Box::new(y_set)],
             strictness: Strictness::IgnoreAll,
+            ..Default::default()
         };
-        let res = river.run(None).unwrap();
+        let (res, _) = river.run(None).unwrap();
         assert_eq!(res.len(), 2);
     }
 

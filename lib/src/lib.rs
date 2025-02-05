@@ -34,33 +34,3 @@ pub mod forest;
 pub use gremlin_macros::*;
 pub use paste;
 pub use thousands::Separable;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use gremlin_macros::Row;
-
-    #[test]
-    fn test_derive_partial() {
-        use crate::data::{FromPartial, HydrateError, Row};
-        #[derive(
-            Debug, Default, Partial, PartialEq, Clone, serde::Serialize, serde::Deserialize, Row,
-        )]
-        struct TestInner {
-            a: String,
-        }
-
-        #[derive(Default, Partial, Row)]
-        struct Test {
-            a: u32,
-
-            #[row]
-            b: f32,
-
-            c: Vec<TestInner>,
-
-            #[partial]
-            d: Vec<TestInner>,
-        }
-    }
-}

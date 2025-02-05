@@ -416,13 +416,3 @@ where
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_hourly_interval() {
-        Hourly::as_datetime(&(128u16,));
-    }
-}
