@@ -15,7 +15,12 @@ use std::{
 };
 
 use chrono::{Datelike, Duration, NaiveDateTime};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{
+    de::{self, DeserializeOwned},
+    ser::SerializeMap,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
+use serde_json::{Map, Value};
 
 use crate::file::{write_flat_csv, CsvError};
 
@@ -52,14 +57,9 @@ pub trait Interval: std::fmt::Debug + Clone + Default + Ord + Serialize + Deseri
     fn as_datetime(row: &Self) -> NaiveDateTime;
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(bound(serialize = "I: Serialize, T: Serialize"))]
-#[serde(bound(deserialize = "I: DeserializeOwned, T: DeserializeOwned"))]
+#[derive(Debug)]
 pub struct SeriesRow<I: Interval, T> {
-    #[serde(flatten)]
     pub when: I,
-
-    #[serde(flatten)]
     pub value: T,
 }
 impl<I: Interval, T: Default> Default for SeriesRow<I, T> {
@@ -296,6 +296,125 @@ pub struct FullTimeSeries<N: Numeric, I: Interval> {
 
     #[allow(dead_code)]
     lerp: Option<Vec<N>>,
+}
+
+// Custom serialization implementation which effectively
+// flattens a `SeriesRow` in CSVs.
+// We could tag the `when` and `value` fields with
+// `#[serde(flatten)]` except that this fails
+// if `value` is a primitive, e.g. `f32`.
+impl<I, T> Serialize for SeriesRow<I, T>
+where
+    I: Interval + Serialize,
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let when_value = serde_json::to_value(&self.when).map_err(serde::ser::Error::custom)?;
+        let value_value = serde_json::to_value(&self.value).map_err(serde::ser::Error::custom)?;
+
+        let mut map = serializer.serialize_map(None)?;
+
+        // Serialize `when` fields
+        if let Value::Object(when_map) = when_value {
+            for (k, v) in when_map {
+                serialize_json_value::<S>(&mut map, &k, v)?;
+            }
+        } else {
+            return Err(serde::ser::Error::custom(
+                "Expected `when` to serialize to an object",
+            ));
+        }
+
+        // Serialize `value` fields or primitives
+        match value_value {
+            Value::Object(value_map) => {
+                for (k, v) in value_map {
+                    serialize_json_value::<S>(&mut map, &k, v)?;
+                }
+            }
+            primitive => {
+                serialize_json_value::<S>(&mut map, "value", primitive)?;
+            }
+        }
+
+        map.end()
+    }
+}
+
+// Helper function to serialize `serde_json::Value` while preserving native types
+fn serialize_json_value<S>(
+    map: &mut S::SerializeMap,
+    key: &str,
+    value: Value,
+) -> Result<(), S::Error>
+where
+    S: Serializer,
+{
+    match value {
+        Value::String(s) => map.serialize_entry(key, &s),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                map.serialize_entry(key, &i)
+            } else if let Some(u) = n.as_u64() {
+                map.serialize_entry(key, &u)
+            } else if let Some(f) = n.as_f64() {
+                map.serialize_entry(key, &f)
+            } else {
+                Err(serde::ser::Error::custom("Invalid number format"))
+            }
+        }
+        Value::Bool(b) => map.serialize_entry(key, &b),
+        Value::Null => map.serialize_entry(key, &""),
+        Value::Array(arr) => {
+            let joined = arr
+                .into_iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            map.serialize_entry(key, &joined)
+        }
+        Value::Object(_) => map.serialize_entry(key, &"[object]"), // Customize if needed
+    }
+}
+
+// Custom Deserialize implementation
+impl<'de, I, T> Deserialize<'de> for SeriesRow<I, T>
+where
+    I: Interval + DeserializeOwned,
+    T: DeserializeOwned,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let map: Map<String, Value> = Map::deserialize(deserializer)?;
+
+        // Attempt to split the fields between `when` and `value`
+        let when_candidate = serde_json::from_value(Value::Object(map.clone()))
+            .map_err(|_| de::Error::custom("Failed to deserialize `when`"))?;
+
+        // Try to deserialize as a struct first
+        let value_candidate: Result<T, _> = serde_json::from_value(Value::Object(map.clone()));
+
+        let value = if let Ok(v) = value_candidate {
+            v
+        } else if let Some(primitive_value) = map.get("value") {
+            serde_json::from_value(primitive_value.clone())
+                .map_err(|_| de::Error::custom("Failed to deserialize primitive `value`"))?
+        } else {
+            return Err(de::Error::custom(
+                "Missing `value` field for primitive types",
+            ));
+        };
+
+        Ok(SeriesRow {
+            when: when_candidate,
+            value,
+        })
+    }
 }
 
 #[cfg(test)]
