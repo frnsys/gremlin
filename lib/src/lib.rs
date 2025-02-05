@@ -17,7 +17,6 @@
 pub mod core;
 pub mod data;
 pub mod docs;
-pub mod draw;
 pub mod file;
 
 pub mod id;
