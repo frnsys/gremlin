@@ -15,7 +15,6 @@ pub mod profile;
 mod reference;
 mod report;
 mod river;
-mod series;
 
 // Behind a feature gate as the
 // polars dependency can be quite heavy.
@@ -36,7 +35,6 @@ pub use iterator::*;
 pub use partial::*;
 pub use reference::*;
 pub use river::*;
-pub use series::*;
 
 pub use time::{
     self, macros::format_description, serde::format_description as serde_description, Date,

@@ -18,6 +18,7 @@ use std::{
 
 use super::numeric::Numeric;
 use serde::{Deserialize, Serialize};
+use thousands::Separable;
 
 /// Represents a base unit, e.g. "watts".
 ///
@@ -201,7 +202,7 @@ pub struct Ratio<N: Unit, D: Unit> {
 impl_numeric!(Ratio<N, D>, N: Unit, D: Unit);
 impl<N: Unit, D: Unit> Display for Ratio<N, D> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.value, Self::abbrev())
+        write!(f, "{}{}", self.value.separate_with_commas(), Self::abbrev())
     }
 }
 impl<N: Unit, D: Unit> Debug for Ratio<N, D> {
@@ -239,7 +240,7 @@ pub struct Product<N: Unit, M: Unit> {
 impl_numeric!(Product<N, M>, N: Unit, M: Unit);
 impl<N: Unit, M: Unit> Display for Product<N, M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}{}", self.value, Self::abbrev())
+        write!(f, "{}{}", self.value.separate_with_commas(), Self::abbrev())
     }
 }
 impl<N: Unit, M: Unit> Debug for Product<N, M> {
@@ -387,10 +388,11 @@ macro_rules! impl_ops {
 
         impl<$($($bounds)*)?> std::fmt::Display for $type {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                use $crate::Separable;
                 write!(
                     f,
                     "{}{}",
-                    self.value(),
+                    self.value().separate_with_commas(),
                     Self::abbrev(),
                 )
             }

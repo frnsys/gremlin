@@ -21,6 +21,7 @@ pub mod draw;
 pub mod file;
 
 pub mod id;
+pub mod logging;
 pub mod record;
 pub mod stats;
 pub mod util;
@@ -33,6 +34,7 @@ pub mod forest;
 
 pub use gremlin_macros::*;
 pub use paste;
+pub use thousands::Separable;
 
 #[cfg(test)]
 mod tests {

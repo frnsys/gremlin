@@ -115,7 +115,7 @@ pub type ByConstraint<T> = BTreeMap<String, T>;
 pub type VarReferences = BySource<ByFacet<BySourceFacet<ByField<f32>>>>;
 pub type FacetVarReferences = BySource<BySourceFacet<ByField<f32>>>;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct StepResult {
     pub num: usize,
     pub name: String,

@@ -20,6 +20,7 @@ pub enum DataError {
     #[error("Parse float error: {0:?}")]
     ParseFloat(#[from] std::num::ParseFloatError),
 
+    #[cfg(any(feature = "forest", feature = "imputing", feature = "learning"))]
     #[error("Polars error: {0:?}")]
     Polars(#[from] polars::prelude::PolarsError),
 

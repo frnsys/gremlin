@@ -10,16 +10,14 @@
 
 use std::{
     collections::BTreeMap,
-    marker::PhantomData,
-    ops::{Add, Deref, DerefMut},
+    ops::{Deref, DerefMut},
     path::Path,
 };
 
 use chrono::{Datelike, Duration, NaiveDateTime};
-use generic_array::{functional::FunctionalSequence, ArrayLength, GenericArray};
-use itertools::{traits::HomogeneousTuple, Itertools};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use typenum::{Add1, B1, U};
+
+use crate::file::{write_flat_csv, CsvError};
 
 use super::{Array, Numeric};
 
@@ -50,49 +48,80 @@ pub enum Lerp {
 /// you'd use something like `["year", "hour"].into()`.
 /// This is used to name columns when writing to CSVs
 /// using [`TimeSeries::to_csv`].
-pub trait Interval {
-    type KeySize: ArrayLength + Add<B1>;
-    type Key: Into<GenericArray<u16, Self::KeySize>>
-        + Copy
-        + HomogeneousTuple<Item = u16>
-        + Ord
-        + PartialOrd;
-    fn key_columns() -> GenericArray<&'static str, Self::KeySize>;
-    fn as_datetime(key: &Self::Key) -> NaiveDateTime;
+pub trait Interval: std::fmt::Debug + Clone + Default + Ord + Serialize + DeserializeOwned {
+    fn as_datetime(row: &Self) -> NaiveDateTime;
 }
 
-type Key<I> = GenericArray<u16, <I as Interval>::KeySize>;
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(bound(serialize = "I: Serialize, T: Serialize"))]
+#[serde(bound(deserialize = "I: DeserializeOwned, T: DeserializeOwned"))]
+pub struct SeriesRow<I: Interval, T> {
+    #[serde(flatten)]
+    pub when: I,
+
+    #[serde(flatten)]
+    pub value: T,
+}
+impl<I: Interval, T: Default> Default for SeriesRow<I, T> {
+    fn default() -> Self {
+        Self {
+            when: I::default(),
+            value: T::default(),
+        }
+    }
+}
+impl<I: Interval, T: Clone> Clone for SeriesRow<I, T> {
+    fn clone(&self) -> Self {
+        Self {
+            when: self.when.clone(),
+            value: self.value.clone(),
+        }
+    }
+}
+impl<I: Interval, T: PartialEq> PartialEq for SeriesRow<I, T> {
+    fn eq(&self, other: &Self) -> bool {
+        other.when == other.when && other.value == other.value
+    }
+}
 
 /// An annual interval for a time series.
-pub struct Annual;
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Annual {
+    pub year: u16,
+}
 impl Interval for Annual {
-    type KeySize = U<1>;
-    type Key = (u16,);
-
-    fn key_columns() -> GenericArray<&'static str, Self::KeySize> {
-        ["year"].into()
-    }
-
-    fn as_datetime(key: &Self::Key) -> NaiveDateTime {
+    fn as_datetime(row: &Self) -> NaiveDateTime {
         let dt = NaiveDateTime::default();
-        dt.with_year(key.0 as i32).expect("Is a valid year")
+        dt.with_year(row.year as i32).expect("Is a valid year")
     }
 }
 
 /// An hourly interval for a time series.
-pub struct Hourly;
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Hourly {
+    pub hour: u16,
+}
 impl Interval for Hourly {
-    type KeySize = U<1>;
-    type Key = (u16,);
-
-    fn key_columns() -> GenericArray<&'static str, Self::KeySize> {
-        ["hour"].into()
-    }
-
-    fn as_datetime(key: &Self::Key) -> NaiveDateTime {
+    fn as_datetime(row: &Self) -> NaiveDateTime {
         let epoch = NaiveDateTime::default();
-        let duration = Duration::hours(key.0 as i64);
+        let duration = Duration::hours(row.hour as i64);
         epoch + duration
+    }
+}
+
+// Note: 1-indexed month.
+#[derive(Debug, Default, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Monthly {
+    pub year: u16,
+    pub month: u16,
+}
+impl Interval for Monthly {
+    fn as_datetime(row: &Self) -> NaiveDateTime {
+        let dt = NaiveDateTime::default();
+        dt.with_year(row.year as i32)
+            .expect("Is a valid year")
+            .with_month(row.month as u32)
+            .expect("Is a valid month")
     }
 }
 
@@ -101,201 +130,171 @@ impl Interval for Hourly {
 /// for contiguous data see [`FullTimeSeries`] instead.
 #[derive(Serialize, Deserialize)]
 #[serde(transparent)]
-#[serde(bound(serialize = "I::Key: Serialize, T: Serialize"))]
-#[serde(bound(deserialize = "I::Key: DeserializeOwned, T: DeserializeOwned"))]
+#[serde(bound(serialize = "I: Serialize, T: Serialize"))]
+#[serde(bound(deserialize = "I: DeserializeOwned, T: DeserializeOwned"))]
 pub struct TimeSeries<T, I: Interval> {
-    data: Vec<(I::Key, T)>,
-    marker: PhantomData<I>,
+    rows: Vec<SeriesRow<I, T>>,
 }
 
 impl<T, I: Interval> Deref for TimeSeries<T, I> {
-    type Target = Vec<(I::Key, T)>;
+    type Target = Vec<SeriesRow<I, T>>;
     fn deref(&self) -> &Self::Target {
-        &self.data
+        &self.rows
     }
 }
 impl<T, I: Interval> DerefMut for TimeSeries<T, I> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.data
+        &mut self.rows
     }
 }
 
 impl<T, I: Interval> Default for TimeSeries<T, I> {
     fn default() -> Self {
-        TimeSeries {
-            data: vec![],
-            marker: PhantomData,
-        }
+        TimeSeries { rows: vec![] }
     }
 }
 
-impl<T, I: Interval, IT> From<IT> for TimeSeries<T, I>
-where
-    IT: Iterator<Item = (I::Key, T)>,
-{
-    fn from(value: IT) -> Self {
-        TimeSeries {
-            data: value.collect(),
-            marker: PhantomData,
-        }
-    }
-}
-impl<T, I: Interval> TimeSeries<T, I> {
-    pub fn iter(&self) -> impl Iterator<Item = &(I::Key, T)> {
-        self.data.iter()
-    }
-
-    /// Write this time series to a CSV.
-    /// The interval key columns will be used to name
-    /// the columns, see [`Interval`].
-    ///
-    /// The value column will always be named "value".
-    pub fn to_csv<P: AsRef<Path>>(&self, path: P) -> csv::Result<()>
-    where
-        T: ToString,
-    {
-        let mut w = csv::Writer::from_path(path)?;
-        let headers = [I::key_columns().as_slice(), &["value"]].concat();
-        w.write_record(headers)?;
-        for (keys, value) in &self.data {
-            let keys: Key<I> = (*keys).into();
-            let mut row: Vec<String> = keys.map(|k| k.to_string()).to_vec();
-            row.push(value.to_string());
-            w.write_record(row)?;
-        }
-        w.flush()?;
-        Ok(())
+impl<T: Default + Serialize, I: Interval> TimeSeries<T, I> {
+    pub fn to_csv<P: AsRef<Path> + std::fmt::Debug>(&self, path: P) -> Result<(), CsvError> {
+        write_flat_csv(path, &self.rows)
     }
 
     /// Sort the series by key.
     pub fn sort(&mut self) {
-        self.data.sort_by_key(|(key, _)| *key)
+        self.rows.sort_by_key(|row| row.when.clone())
     }
 
     /// Get the minimum key of the series.
-    pub fn min_key(&self) -> Option<I::Key> {
-        self.data
+    pub fn min_key(&self) -> Option<&I> {
+        self.rows
             .iter()
-            .min_by_key(|(key, _)| *key)
-            .map(|item| item.0)
+            .min_by_key(|row| &row.when)
+            .map(|row| &row.when)
     }
 
     /// Get the maximum key of the series.
-    pub fn max_key(&self) -> Option<I::Key> {
-        self.data
+    pub fn max_key(&self) -> Option<&I> {
+        self.rows
             .iter()
-            .max_by_key(|(key, _)| *key)
-            .map(|item| item.0)
+            .max_by_key(|row| &row.when)
+            .map(|row| &row.when)
     }
 }
 
 impl<N: Clone, I: Interval, const U: usize> TimeSeries<Array<N, { U }>, I> {
-    /// This takes a time series whose elements are [`Array<N>`]s
-    /// and flattens it into a time series of `N`s.
-    ///
-    /// For example, say you have a `TimeSeries<ByDayHour<f32>, Annual>`,
-    /// so each record represents a year and each year has 24 values, one
-    /// for each hour of the day. So for `n` years you'll have `n` records,
-    /// which are indexed by `(u16,)`, representing the year.
-    ///
-    /// You can flatten it into a time series where instead
-    /// each record represents a year-hour, so instead of one record
-    /// per year you now have 24, and thus `n*24` records in total.
-    /// These would be indexed by `(u16, u16)`, representing the `(year, hour)`.
-    pub fn flatten<J: Interval<KeySize = Add1<I::KeySize>>>(&self) -> TimeSeries<N, J>
-    where
-        J::KeySize: ArrayLength,
-    {
-        self.data
-            .iter()
-            .flat_map(|(key, arr)| {
-                arr.iter().enumerate().map(|(i, val)| {
-                    let key: Key<I> = (*key).into();
-                    let key = [key.as_slice(), &[i as u16]].concat();
-                    let key: J::Key = key.into_iter().collect_tuple().unwrap();
-                    (key, val.clone())
-                })
-            })
-            .collect()
+    // This takes a time series whose elements are [`Array<N>`]s
+    // and flattens it into a time series of `N`s.
+    //
+    // For example, say you have a `TimeSeries<ByDayHour<f32>, Annual>`,
+    // so each record represents a year and each year has 24 values, one
+    // for each hour of the day. So for `n` years you'll have `n` records,
+    // which are indexed by `(u16,)`, representing the year.
+    //
+    // You can flatten it into a time series where instead
+    // each record represents a year-hour, so instead of one record
+    // per year you now have 24, and thus `n*24` records in total.
+    // These would be indexed by `(u16, u16)`, representing the `(year, hour)`.
+    pub fn flatten(&self) -> impl Iterator<Item = (usize, I, N)> + '_ {
+        self.rows.iter().flat_map(|row| {
+            row.value
+                .iter()
+                .enumerate()
+                .map(|(i, value)| (i, row.when.clone(), value.clone()))
+        })
     }
 }
 
 impl<T: Clone, I: Interval> TimeSeries<T, I> {
+    pub fn values(&self) -> impl Iterator<Item = &T> {
+        self.rows.iter().map(|row| &row.value)
+    }
+
     pub fn as_ref_vec(&self) -> Vec<&T> {
-        self.data.iter().map(|(_, val)| val).collect()
+        self.rows.iter().map(|row| &row.value).collect()
     }
 
     pub fn as_vec(&self) -> Vec<T> {
-        self.data.iter().map(|(_, val)| val.clone()).collect()
+        self.rows.iter().map(|row| row.value.clone()).collect()
     }
 }
-impl<T: Clone, I: Interval> Clone for TimeSeries<T, I> {
+impl<T: Clone, I: Interval + Clone> Clone for TimeSeries<T, I> {
     fn clone(&self) -> Self {
         TimeSeries {
-            data: self.data.clone(),
-            marker: PhantomData,
+            rows: self.rows.clone(),
         }
     }
 }
-impl<T: std::fmt::Debug, I: Interval> std::fmt::Debug for TimeSeries<T, I>
-where
-    I::Key: std::fmt::Debug,
-{
+impl<T: std::fmt::Debug, I: Interval> std::fmt::Debug for TimeSeries<T, I> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "TimeSeries<{}, {}> [{:?}]",
             std::any::type_name::<T>(),
             std::any::type_name::<I>(),
-            self.data
+            self.rows
         )
     }
 }
-impl<T: PartialEq, I: Interval> PartialEq for TimeSeries<T, I>
-where
-    I::Key: PartialEq,
-{
+impl<T: PartialEq, I: Interval> PartialEq for TimeSeries<T, I> {
     fn eq(&self, other: &Self) -> bool {
         self.iter().zip(other.iter()).all(|(a, b)| a == b)
     }
 }
 
-impl<T, I: Interval, K: Into<I::Key>> FromIterator<(K, T)> for TimeSeries<T, I> {
-    fn from_iter<IT: IntoIterator<Item = (K, T)>>(iter: IT) -> Self {
+impl<T, I: Interval> FromIterator<SeriesRow<I, T>> for TimeSeries<T, I> {
+    fn from_iter<IT: IntoIterator<Item = SeriesRow<I, T>>>(iter: IT) -> Self {
         Self {
-            data: iter.into_iter().map(|(k, v)| (k.into(), v)).collect(),
-            marker: PhantomData,
+            rows: iter.into_iter().collect(),
         }
     }
 }
+
+pub type MonthlySeries<N> = TimeSeries<N, Monthly>;
 
 pub type AnnualSeries<N> = TimeSeries<N, Annual>;
 impl<N: Clone> AnnualSeries<N> {
     /// Get all values before the provided year (non-inclusive).
     pub fn before(&self, year: u16) -> AnnualSeries<N> {
-        self.data
+        self.rows
             .iter()
-            .filter(|(y, _)| y.0 < year)
+            .filter(|row| row.when.year < year)
             .cloned()
             .collect()
     }
 
     /// Get all values after the provided year (non-inclusive).
     pub fn after(&self, year: u16) -> AnnualSeries<N> {
-        self.data
+        self.rows
             .iter()
-            .filter(|(y, _)| y.0 > year)
+            .filter(|row| row.when.year > year)
             .cloned()
             .collect()
     }
 }
+impl<T> FromIterator<(u16, T)> for AnnualSeries<T> {
+    fn from_iter<IT: IntoIterator<Item = (u16, T)>>(iter: IT) -> Self {
+        Self {
+            rows: iter
+                .into_iter()
+                .map(|(year, value)| SeriesRow {
+                    when: Annual { year },
+                    value,
+                })
+                .collect(),
+        }
+    }
+}
 
+// TODO finish this?
 /// A full time series is a time series that is
 /// guaranteed to be continuous/contiguous, i.e.
 /// missing values will be interpolated.
 #[derive(Debug, Default, Clone)]
 pub struct FullTimeSeries<N: Numeric, I: Interval> {
-    data: BTreeMap<I::Key, N>,
+    #[allow(dead_code)]
+    data: BTreeMap<I, N>,
+
+    #[allow(dead_code)]
     lerp: Option<Vec<N>>,
 }
 

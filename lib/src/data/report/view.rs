@@ -8,7 +8,7 @@ use crate::data::{
 use super::{util, Diff, RiverReport};
 use itertools::Itertools;
 use maud::html;
-use num_format::{Locale, ToFormattedString};
+use thousands::Separable;
 
 const CSS: &'static str = include_str!("assets/report.css");
 const JS: &'static str = include_str!("assets/report.js");
@@ -269,15 +269,15 @@ fn count_change_span(cur: isize, prev: isize) -> maud::Markup {
     html! {
         @if diff == 0 {
             span.change-none {
-                (format!(" {}", diff.to_formatted_string(&Locale::en)))
+                (format!(" {}", diff.separate_with_commas()))
             }
         } @else if  diff > 0 {
             span.change-up {
-                (format!(" +{}", diff.to_formatted_string(&Locale::en)))
+                (format!(" +{}", diff.separate_with_commas()))
             }
         } @else {
             span.change-down {
-                (format!(" {}", diff.to_formatted_string(&Locale::en)))
+                (format!(" {}", diff.separate_with_commas()))
             }
         }
     }
@@ -438,7 +438,7 @@ fn profile_diff_table(
 
     html! {
         .profile-stats {
-            (format!("Total: {}", total.to_formatted_string(&Locale::en)))
+            (format!("Total: {}", total.separate_with_commas()))
             (last_total.map(|last| {
                 count_change_span(total as isize, last as isize)
             }).unwrap_or_default())
