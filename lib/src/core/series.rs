@@ -204,6 +204,15 @@ impl<N: Clone, I: Interval, const U: usize> TimeSeries<Array<N, { U }>, I> {
     }
 }
 
+impl<T, I: Interval> IntoIterator for TimeSeries<T, I> {
+    type Item = SeriesRow<I, T>;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.rows.into_iter()
+    }
+}
+
 impl<T: Clone, I: Interval> TimeSeries<T, I> {
     pub fn values(&self) -> impl Iterator<Item = &T> {
         self.rows.iter().map(|row| &row.value)
