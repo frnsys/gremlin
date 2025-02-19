@@ -46,12 +46,20 @@ where
 }
 
 impl Data {
+    pub fn empty() -> Self {
+        Self(vec![])
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    pub fn push(&mut self, value: f32) {
+        self.0.push(value);
     }
 
     pub fn min(&self) -> Option<f32> {
@@ -250,5 +258,25 @@ impl Data {
             }
         }
         s
+    }
+}
+
+pub struct MultiData(Vec<Data>);
+impl MultiData {
+    pub fn new<N>(mut values: Vec<Vec<N>>) -> Self
+    where
+        f32: From<N>,
+    {
+        let mut datas = vec![];
+        while !values[0].is_empty() {
+            let data =
+                Data::from_unsorted(values.iter_mut().filter_map(|vals| vals.pop()).collect());
+            datas.push(data);
+        }
+        MultiData(datas)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &Data> {
+        self.0.iter()
     }
 }
