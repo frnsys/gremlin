@@ -2,7 +2,7 @@ use ahash::HashMap;
 use ordered_float::NotNan;
 use serde::{Deserialize, Serialize};
 
-use super::Vecf32Ext;
+use crate::stats::Data;
 
 serde_with::with_prefix!(missing "missing.");
 serde_with::with_prefix!(infinite "infinite.");
@@ -300,7 +300,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
     let zero = finite.iter().filter(|val| **val == 0.0).count();
     let zero = Count::new(zero as isize, total);
 
-    let mut valid = finite;
+    let valid = finite;
 
     // SAFETY: We've already filtered out NaN values.
     let ord_float: Vec<_> = valid
@@ -321,67 +321,41 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
     let summary = if valid.is_empty() {
         Summary::empty()
     } else {
-        let n_valid = valid.len();
+        let mut data = Data::from_unsorted(valid);
+        let sample_size = data.len();
 
-        let min: f32 = valid.min();
-        let max: f32 = valid.max();
-        let range = max - min;
+        let non_outlier: Vec<f32> = data.filter_outliers().collect();
+        let outliers = Count::new(
+            sample_size as isize - non_outlier.len() as isize,
+            sample_size,
+        );
 
-        let sum: f32 = valid.iter().sum::<f32>();
-        let mean = sum / n_valid as f32;
+        data.remove_outliers();
+        let mean = data.mean().expect("Has at least one value");
+        let rel_var = data.relative_variance().expect("Has at least one value");
+        let coef_of_var = rel_var.sqrt();
+        let std_dev = data.std_dev().expect("Has at least one value");
 
-        valid.sort_by(|a, b| a.partial_cmp(b).expect("Only non-nan values"));
-        let q1 = calculate_percentile(&valid, 25.);
-        let q3 = calculate_percentile(&valid, 75.);
-        let median = median(&valid).expect("Non-empty sequence");
+        let skewness = data.skewness().expect("Has at least one value");
+        let kurtosis = data.kurtosis().expect("Has at least one value");
 
+        let mean_abs_dev = data.mean_abs_dev().expect("Has at least one value");
+        let histogram = data.histogram(6);
+
+        let q1 = data.percentile(25.);
+        let q3 = data.percentile(75.);
         let iqr = q3 - q1;
         let outlier_lower_bound = q1 - 1.5 * iqr;
         let outlier_upper_bound = q3 + 1.5 * iqr;
 
-        let p5 = calculate_percentile(&valid, 5.);
-        let p95 = calculate_percentile(&valid, 95.);
-        let sample_size = valid.len() as isize;
-
-        let non_outlier: Vec<f32> = valid
-            .into_iter()
-            .filter(move |val| *val >= outlier_lower_bound && *val <= outlier_upper_bound)
-            .collect();
-        let outliers = Count::new(n_valid as isize - non_outlier.len() as isize, n_valid);
-
-        // TODO should this be calculated after or before removing outliers?
-        let valid = non_outlier;
-        let n_valid = valid.len();
-
-        let rel_var = relative_variance(&valid, mean, median).expect("Has at least one value");
-        let coef_of_var = rel_var.sqrt();
-
-        let variance = valid.iter().map(|val| (val - mean).powi(2)).sum::<f32>() / n_valid as f32;
-        let std_dev = variance.sqrt();
-
-        let skewness = valid
-            .iter()
-            .map(|val| ((val - mean) / std_dev).powi(3))
-            .sum::<f32>()
-            / n_valid as f32;
-        let kurtosis = valid
-            .iter()
-            .map(|val| ((val - mean) / std_dev).powi(4))
-            .sum::<f32>()
-            / n_valid as f32
-            - 3.0; // Subtract 3 for excess kurtosis
-        let mean_abs_dev = valid.iter().map(|val| (val - mean).abs()).sum::<f32>() / n_valid as f32;
-
-        let histogram = histogram(&valid, 6);
-
         Summary {
-            min,
-            max,
-            range,
+            min: data.min().unwrap(),
+            max: data.max().unwrap(),
+            range: data.range().unwrap(),
             mean,
-            median,
-            p5,
-            p95,
+            median: data.median().unwrap(),
+            p5: data.percentile(5.),
+            p95: data.percentile(95.),
             q1,
             q3,
             iqr,
@@ -394,7 +368,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
             kurtosis,
             mean_abs_dev,
             histogram,
-            sample_size,
+            sample_size: sample_size as isize,
         }
     };
 
@@ -409,87 +383,6 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
         is_constant,
         summary,
     }
-}
-
-fn calculate_percentile(sorted_data: &[f32], percentile: f32) -> f32 {
-    let index = (percentile / 100.0) * (sorted_data.len() as f32 - 1.0);
-    let lower = index.floor() as usize;
-    let upper = index.ceil() as usize;
-    if lower == upper {
-        sorted_data[lower]
-    } else {
-        let weight = index - lower as f32;
-        sorted_data[lower] * (1.0 - weight) + sorted_data[upper] * weight
-    }
-}
-
-fn median(sorted_data: &[f32]) -> Option<f32> {
-    if sorted_data.is_empty() {
-        return None;
-    }
-
-    let mid = sorted_data.len() / 2;
-    let val = if sorted_data.len() % 2 == 0 {
-        (sorted_data[mid - 1] + sorted_data[mid]) / 2.0
-    } else {
-        sorted_data[mid]
-    };
-    Some(val)
-}
-
-/// Compute the relative variance, i.e. the coefficient of variance.
-fn relative_variance(data: &[f32], mean: f32, median: f32) -> Option<f32> {
-    if data.is_empty() {
-        return None;
-    }
-
-    let denom = if median == 0. { mean } else { median };
-    let variance = data.iter().map(|x| (x - denom).powi(2)).sum::<f32>() / data.len() as f32;
-    Some(variance / denom.powi(2))
-}
-
-fn histogram(values: &[f32], bins: usize) -> String {
-    const SYMBOLS: [char; 8] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
-
-    let mut s = String::new();
-    if !values.is_empty() {
-        let bins = bin_values(values, bins);
-        let counts: Vec<_> = bins.iter().map(|bin| bin.len()).collect();
-        let max = counts.iter().max().expect("Checked for values");
-        for count in &counts {
-            let p = *count as f32 / *max as f32;
-            let p = (p * 7.).round() as usize;
-            let sym = SYMBOLS[p];
-            s.push(sym);
-        }
-    }
-    s
-}
-
-fn bin_values(values: &[f32], num_bins: usize) -> Vec<Vec<f32>> {
-    if num_bins == 0 || values.is_empty() {
-        return vec![vec![]; num_bins];
-    }
-
-    let min_value = values.iter().cloned().fold(f32::INFINITY, f32::min);
-    let max_value = values.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-
-    let bin_width = (max_value - min_value) / num_bins as f32;
-
-    let mut bins: Vec<Vec<f32>> = vec![Vec::new(); num_bins];
-
-    for &value in values {
-        let bin_index = if bin_width > 0.0 {
-            ((value - min_value) / bin_width).floor() as usize
-        } else {
-            0 // Handle the case where all values are the same
-        }
-        .min(num_bins - 1); // Ensure the index does not exceed the number of bins
-
-        bins[bin_index].push(value);
-    }
-
-    bins
 }
 
 #[cfg(test)]

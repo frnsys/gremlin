@@ -25,7 +25,7 @@ use thousands::Separable;
 /// _Note_: `Deref` should *not* be implemented because we want
 /// to be explicit and know when we're ignoring the associated
 /// units. Instead you use `.value()` to access the raw value.
-pub trait Unit: Debug + From<f32> {
+pub trait Unit: Copy + Debug + From<f32> {
     /// The abbreviation for this unit, e.g. "W".
     fn abbrev() -> String;
 

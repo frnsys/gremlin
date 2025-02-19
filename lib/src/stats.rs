@@ -1,80 +1,254 @@
-/// Compute the median.
-///
-/// This will sort the values before computing the median.
-pub fn median(nums: &mut [f32]) -> Option<f32> {
-    if nums.is_empty() {
-        return None;
-    }
+use ordered_float::OrderedFloat;
 
-    nums.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let mid = nums.len() / 2;
-    let val = if nums.len() % 2 == 0 {
-        (nums[mid - 1] + nums[mid]) / 2.0
-    } else {
-        nums[mid]
-    };
-    Some(val)
+enum Values<N>
+where
+    f32: From<N>,
+{
+    Sorted(Vec<N>),
+    Unsorted(Vec<N>),
 }
 
-/// Compute the relative variance, i.e. the coefficient of variance.
-pub fn relative_variance(data: &[f32], mean: f32, median: f32) -> Option<f32> {
-    if data.is_empty() {
-        return None;
+pub struct Data(Vec<f32>);
+impl Data {
+    pub fn from_sorted<N>(values: Vec<N>) -> Self
+    where
+        f32: From<N>,
+    {
+        Values::Sorted(values).into()
     }
 
-    let denom = if median == 0. { mean } else { median };
-    let variance = data.iter().map(|x| (x - denom).powi(2)).sum::<f32>() / data.len() as f32;
-    Some(variance / denom.powi(2))
-}
-
-/// Compute the specified percentile (e.g. `75.`).
-///
-/// Assumes the data is already sorted.
-pub fn calculate_percentile(sorted_data: &[f32], percentile: f32) -> f32 {
-    let index = (percentile / 100.0) * (sorted_data.len() as f32 - 1.0);
-    let lower = index.floor() as usize;
-    let upper = index.ceil() as usize;
-    if lower == upper {
-        sorted_data[lower]
-    } else {
-        let weight = index - lower as f32;
-        sorted_data[lower] * (1.0 - weight) + sorted_data[upper] * weight
+    pub fn from_unsorted<N>(values: Vec<N>) -> Self
+    where
+        f32: From<N>,
+    {
+        Values::Unsorted(values).into()
     }
 }
 
-/// Compute Q1 and Q3 for the interquartile range.
-///
-/// Will sort the data.
-pub fn compute_q1_q3(data: impl Iterator<Item = f32>) -> Option<(f32, f32)> {
-    let mut data: Vec<f32> = data.collect();
-    if data.is_empty() {
-        None
-    } else {
-        data.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let q1 = calculate_percentile(&data, 25.0);
-        let q3 = calculate_percentile(&data, 75.0);
-        Some((q1, q3))
+impl<N> From<Values<N>> for Data
+where
+    f32: From<N>,
+{
+    fn from(values: Values<N>) -> Self {
+        let values: Vec<f32> = match values {
+            Values::Sorted(vec) => vec.into_iter().map(f32::from).collect(),
+            Values::Unsorted(vec) => {
+                let mut values: Vec<_> = vec
+                    .into_iter()
+                    .map(|v| OrderedFloat(f32::from(v)))
+                    .collect();
+                values.sort();
+                values.into_iter().map(OrderedFloat::into_inner).collect()
+            }
+        };
+        Self(values)
     }
 }
 
-/// Filter outliers using +/- IQR.
-///
-/// This returns an iterator where removed values
-/// are `None` and preserved values are `Some(..)`.
-pub fn filter_outliers(
-    data: &[f32],
-    q1: f32,
-    q3: f32,
-) -> impl Iterator<Item = Option<f32>> + use<'_> {
-    let iqr = q3 - q1;
-    let lower_bound = q1 - 1.5 * iqr;
-    let upper_bound = q3 + 1.5 * iqr;
+impl Data {
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
 
-    data.iter().map(move |&x| {
-        if x < lower_bound || x > upper_bound {
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn min(&self) -> Option<f32> {
+        self.0.get(0).copied()
+    }
+
+    pub fn max(&self) -> Option<f32> {
+        self.0.last().copied()
+    }
+
+    pub fn range(&self) -> Option<f32> {
+        self.min().zip(self.max()).map(|(min, max)| max - min)
+    }
+
+    /// Compute the median.
+    pub fn median(&self) -> Option<f32> {
+        let vals = &self.0;
+        if vals.is_empty() {
+            return None;
+        }
+        let mid = vals.len() / 2;
+        let val = if vals.len() % 2 == 0 {
+            (vals[mid - 1] + vals[mid]) / 2.0
+        } else {
+            vals[mid]
+        };
+        Some(val)
+    }
+
+    pub fn mean(&self) -> Option<f32> {
+        let vals = &self.0;
+        if vals.is_empty() {
+            return None;
+        }
+        let mean = vals.iter().sum::<f32>() / vals.len() as f32;
+        Some(mean)
+    }
+
+    pub fn variance(&self) -> Option<f32> {
+        self.mean().map(|mean| {
+            let n = self.len() as f32;
+            self.0.iter().map(|val| (val - mean).powi(2)).sum::<f32>() / n
+        })
+    }
+
+    pub fn mean_abs_dev(&self) -> Option<f32> {
+        self.mean().map(|mean| {
+            let n = self.len() as f32;
+            self.0.iter().map(|val| (val - mean).abs()).sum::<f32>() / n
+        })
+    }
+
+    pub fn std_dev(&self) -> Option<f32> {
+        self.variance().map(|var| var.sqrt())
+    }
+
+    /// Compute the relative variance, i.e. the coefficient of variance.
+    pub fn relative_variance(&self) -> Option<f32> {
+        let vals = &self.0;
+        if vals.is_empty() {
+            return None;
+        }
+
+        let median = self.median().expect("Checked if vals was empty.");
+        let mean = self.mean().expect("Checked if vals was empty.");
+        let denom = if median == 0. { mean } else { median };
+        let variance = vals.iter().map(|x| (x - denom).powi(2)).sum::<f32>() / vals.len() as f32;
+        Some(variance / denom.powi(2))
+    }
+
+    pub fn skewness(&self) -> Option<f32> {
+        self.mean().zip(self.std_dev()).map(|(mean, std_dev)| {
+            let n = self.len() as f32;
+            self.0
+                .iter()
+                .map(|val| ((val - mean) / std_dev).powi(3))
+                .sum::<f32>()
+                / n
+        })
+    }
+
+    pub fn kurtosis(&self) -> Option<f32> {
+        self.mean().zip(self.std_dev()).map(|(mean, std_dev)| {
+            let n = self.len() as f32;
+            self.0
+                .iter()
+                .map(|val| ((val - mean) / std_dev).powi(4))
+                .sum::<f32>()
+                / n
+                - 3.0 // Subtract 3 for excess kurtosis
+        })
+    }
+
+    /// Compute the specified percentile (e.g. `75.`).
+    pub fn percentile(&self, percentile: f32) -> f32 {
+        let vals = &self.0;
+        let index = (percentile / 100.0) * (vals.len() as f32 - 1.0);
+        let lower = index.floor() as usize;
+        let upper = index.ceil() as usize;
+        if lower == upper {
+            vals[lower]
+        } else {
+            let weight = index - lower as f32;
+            vals[lower] * (1.0 - weight) + vals[upper] * weight
+        }
+    }
+
+    /// Compute Q1 and Q3 for the interquartile range.
+    fn compute_q1_q3(&self) -> Option<(f32, f32)> {
+        let vals = &self.0;
+        if vals.is_empty() {
             None
         } else {
-            Some(x)
+            let q1 = self.percentile(25.0);
+            let q3 = self.percentile(75.0);
+            Some((q1, q3))
         }
-    })
+    }
+
+    fn outlier_bounds(&self) -> Option<(f32, f32)> {
+        self.compute_q1_q3().map(|(q1, q3)| {
+            let iqr = q3 - q1;
+            let lower_bound = q1 - 1.5 * iqr;
+            let upper_bound = q3 + 1.5 * iqr;
+            (lower_bound, upper_bound)
+        })
+    }
+
+    /// Return an iterator with outliers filtered out.
+    pub fn filter_outliers(&self) -> impl Iterator<Item = f32> + use<'_> {
+        self.non_outliers().flatten()
+    }
+
+    /// Calculate non-outliers using +/- IQR.
+    ///
+    /// This returns an iterator where outliers
+    /// are `None` and non-outliers values are `Some(..)`.
+    pub fn non_outliers(&self) -> impl Iterator<Item = Option<f32>> + use<'_> {
+        let (lower, upper) = self
+            .outlier_bounds()
+            .unwrap_or((f32::INFINITY, f32::NEG_INFINITY));
+        self.0.iter().map(move |&x| {
+            if x < lower || x > upper {
+                None
+            } else {
+                Some(x)
+            }
+        })
+    }
+
+    /// Remove outliers in this data.
+    pub fn remove_outliers(&mut self) {
+        let (lower, upper) = self
+            .outlier_bounds()
+            .unwrap_or((f32::INFINITY, f32::NEG_INFINITY));
+        self.0.retain(|&x| x >= lower && x <= upper);
+    }
+
+    fn bin_values(&self, num_bins: usize) -> Vec<Vec<f32>> {
+        let vals = &self.0;
+        if num_bins == 0 || vals.is_empty() {
+            return vec![vec![]; num_bins];
+        }
+
+        let min_value = self.min().expect("Checked if empty");
+        let max_value = self.max().expect("Checked if empty");
+        let bin_width = (max_value - min_value) / num_bins as f32;
+
+        let mut bins: Vec<Vec<f32>> = vec![Vec::new(); num_bins];
+        for &value in vals {
+            let bin_index = if bin_width > 0.0 {
+                ((value - min_value) / bin_width).floor() as usize
+            } else {
+                0 // Handle the case where all values are the same
+            }
+            .min(num_bins - 1); // Ensure the index does not exceed the number of bins
+
+            bins[bin_index].push(value);
+        }
+
+        bins
+    }
+
+    pub fn histogram(&self, bins: usize) -> String {
+        const SYMBOLS: [char; 8] = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇'];
+        let mut s = String::new();
+        if !self.is_empty() {
+            let bins = self.bin_values(bins);
+            let counts: Vec<_> = bins.iter().map(|bin| bin.len()).collect();
+            let max = counts.iter().max().expect("Checked for values");
+            for count in &counts {
+                let p = *count as f32 / *max as f32;
+                let p = (p * 7.).round() as usize;
+                let sym = SYMBOLS[p];
+                s.push(sym);
+            }
+        }
+        s
+    }
 }

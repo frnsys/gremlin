@@ -69,6 +69,14 @@ pub trait Recorder {
 
     /// Borrow the recorded data.
     fn data(&self) -> &RecorderData;
+
+    fn save_csv(&self, start_year: u16, path: &Path) {
+        self.data().save_csv(start_year, self.units(), path);
+    }
+
+    fn as_records(&self, start_year: u16) -> Vec<Record> {
+        self.data().as_records(start_year, self.units())
+    }
 }
 
 /// A macro to define recorders, which are associated with a particular
@@ -180,11 +188,11 @@ macro_rules! recordables {
 }
 
 #[derive(Debug, Serialize)]
-struct Record<'a> {
-    year: u16,
-    facet: String,
-    value: f32,
-    units: &'a str,
+pub struct Record<'a> {
+    pub year: u16,
+    pub facet: String,
+    pub value: f32,
+    pub units: &'a str,
 }
 
 /// An enum representing different types of recorder data.
@@ -202,8 +210,8 @@ pub enum RecorderData {
     Multiple(Vec<Vec<(String, f32)>>),
 }
 impl RecorderData {
-    pub fn save_csv(&self, start_year: u16, units: &str, path: &Path) {
-        let records: Vec<Record> = match self {
+    fn as_records<'a>(&'a self, start_year: u16, units: &'a str) -> Vec<Record<'a>> {
+        match self {
             Self::Single(data) => data
                 .iter()
                 .enumerate()
@@ -226,7 +234,11 @@ impl RecorderData {
                     })
                 })
                 .collect(),
-        };
+        }
+    }
+
+    fn save_csv(&self, start_year: u16, units: &str, path: &Path) {
+        let records = self.as_records(start_year, units);
         write_csv(path, &records);
     }
 }

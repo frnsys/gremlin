@@ -213,6 +213,18 @@ impl<T, I: Interval> IntoIterator for TimeSeries<T, I> {
     }
 }
 
+impl<T, I: Interval> TimeSeries<T, I> {
+    pub fn map<U>(&self, f: impl Fn(&T) -> U) -> TimeSeries<U, I> {
+        self.rows
+            .iter()
+            .map(|row| SeriesRow {
+                when: row.when.clone(),
+                value: f(&row.value),
+            })
+            .collect()
+    }
+}
+
 impl<T: Clone, I: Interval> TimeSeries<T, I> {
     pub fn values(&self) -> impl Iterator<Item = &T> {
         self.rows.iter().map(|row| &row.value)
