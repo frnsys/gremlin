@@ -135,6 +135,11 @@ impl Interval for Monthly {
 pub struct TimeSeries<T, I: Interval> {
     rows: Vec<SeriesRow<I, T>>,
 }
+impl<T, I: Interval> TimeSeries<T, I> {
+    pub fn new(rows: Vec<SeriesRow<I, T>>) -> Self {
+        Self { rows }
+    }
+}
 
 impl<T, I: Interval> Deref for TimeSeries<T, I> {
     type Target = Vec<SeriesRow<I, T>>;

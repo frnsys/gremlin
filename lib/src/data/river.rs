@@ -256,7 +256,6 @@ where
         );
         let items = items.into_iter().map(|item| {
             let errs = item.validate();
-            println!("{:?}", item);
             if errs.is_empty() {
                 Ok(item)
             } else {

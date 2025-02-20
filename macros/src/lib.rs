@@ -124,6 +124,7 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let struct_name = input.ident;
 
+    let mut facet = quote! { String::new() };
     let mut synthetic_rows = vec![];
     for attr in &input.attrs {
         if attr.path().is_ident("row") {
@@ -135,11 +136,20 @@ pub fn derive_row(input: TokenStream) -> TokenStream {
                 .unwrap();
             }
         }
+        if attr.path().is_ident("facet") {
+            if matches!(attr.meta, Meta::List(_)) {
+                attr.parse_nested_meta(|meta| {
+                    let path = meta.path.clone();
+                    facet = quote! { #path(self).to_string() };
+                    Ok(())
+                })
+                .unwrap();
+            }
+        }
     }
 
     let mut columns = Vec::new();
     let mut values = Vec::new();
-    let mut facet = quote! { String::new() };
 
     if let Data::Struct(data_struct) = input.data {
         if let Fields::Named(fields) = data_struct.fields {
