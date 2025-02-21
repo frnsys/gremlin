@@ -1,6 +1,9 @@
 use std::{
     iter::Sum,
-    ops::{Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Sub, SubAssign},
+    ops::{
+        Add, AddAssign, Div, DivAssign, Index, IndexMut, Mul, MulAssign, Range, RangeBounds, Sub,
+        SubAssign,
+    },
     path::Path,
     str::FromStr,
 };
@@ -157,6 +160,16 @@ impl<N: Clone, const U: usize> Array<N, U> {
         let arr: [N; U] = std::array::from_fn(|_| val.clone());
         Self::new(arr)
     }
+
+    pub fn splat_range<R: RangeBounds<usize> + IntoIterator<Item = usize>>(
+        &mut self,
+        range: R,
+        val: N,
+    ) {
+        for i in range {
+            self[i] = val.clone();
+        }
+    }
 }
 
 impl<N, const U: usize> Index<usize> for Array<N, U> {
@@ -168,6 +181,19 @@ impl<N, const U: usize> Index<usize> for Array<N, U> {
 }
 impl<N, const U: usize> IndexMut<usize> for Array<N, U> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.0[index]
+    }
+}
+
+impl<N, const U: usize> Index<Range<usize>> for Array<N, U> {
+    type Output = [N];
+
+    fn index(&self, index: Range<usize>) -> &Self::Output {
+        &self.0[index]
+    }
+}
+impl<N, const U: usize> IndexMut<Range<usize>> for Array<N, U> {
+    fn index_mut(&mut self, index: Range<usize>) -> &mut Self::Output {
         &mut self.0[index]
     }
 }
