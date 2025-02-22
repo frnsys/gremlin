@@ -120,7 +120,6 @@ pub fn read_flat_csv<
 >(
     path: P,
 ) -> Result<Vec<T>, CsvError> {
-    tracing::debug!("Deserializing CSV: {:#?}", path);
     let path = path.as_ref();
     let reader = csv::Reader::from_path(path).map_err(|err| {
         tracing::error!("{:?}", err);
@@ -225,7 +224,6 @@ pub fn write_flat_csv<T: Serialize + Default, P: AsRef<Path> + std::fmt::Debug>(
     path: P,
     items: &[T],
 ) -> Result<(), CsvError> {
-    tracing::debug!("Serializing CSV: {:#?}", path);
     let mut w = csv::Writer::from_path(path.as_ref())
         .map_err(|_err| CsvError::FailedToOpenFile(path.as_ref().to_path_buf()))?;
 

@@ -238,6 +238,8 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     let partial_name = format!("Partial{}", name); // Partial<Name> name
     let partial_ident = syn::Ident::new(&partial_name, name.span()); // Create an identifier for the new name
 
+    let mut facet = quote! { String::new() };
+
     let mut derive_partial_row = false;
     let mut derive_partial_constrained = false;
     let mut derive_from_default = false;
@@ -256,6 +258,16 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
             })
             .unwrap();
         }
+        if attr.path().is_ident("facet") {
+            if matches!(attr.meta, Meta::List(_)) {
+                attr.parse_nested_meta(|meta| {
+                    let path = meta.path.clone();
+                    facet = quote! { #path(self).map(|f| f.to_string()).unwrap_or_default() };
+                    Ok(())
+                })
+                .unwrap();
+            }
+        }
     }
 
     let mut field_names = vec![];
@@ -267,7 +279,6 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
     let mut field_partial_to_full_unwrap = vec![];
     let mut row_fields = vec![];
     let mut field_constraints = vec![];
-    let mut facet = quote! { String::new() };
     if let Data::Struct(data) = &input.data {
         if let Fields::Named(fields) = &data.fields {
             for f in &fields.named {
