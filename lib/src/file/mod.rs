@@ -16,6 +16,12 @@ use thiserror::Error;
 use crate::data::DataResult;
 
 pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> impl Iterator<Item = T> {
+    _read_csv(path).map(|res| res.unwrap())
+}
+
+fn _read_csv<T: DeserializeOwned, P: AsRef<Path>>(
+    path: P,
+) -> impl Iterator<Item = Result<T, csv::Error>> {
     let path = path.as_ref();
     let mut reader = csv::Reader::from_path(path)
         .inspect_err(|_err| eprintln!("Error reading CSV: {}", path.display().to_string()))
@@ -28,25 +34,23 @@ pub fn read_csv<T: DeserializeOwned, P: AsRef<Path>>(path: P) -> impl Iterator<I
         let rec = rec
             .inspect_err(|_err| eprintln!("Error reading CSV record: {}", display))
             .unwrap();
-        rec.deserialize(Some(&headers))
-            .inspect_err(|err| {
-                match err.kind() {
-                    csv::ErrorKind::Deserialize { err, .. } => {
-                        if let Some(idx) = err.field() {
-                            eprintln!("Field: {:?}", &headers[idx as usize]);
-                        }
+        rec.deserialize(Some(&headers)).inspect_err(|err| {
+            match err.kind() {
+                csv::ErrorKind::Deserialize { err, .. } => {
+                    if let Some(idx) = err.field() {
+                        eprintln!("Field: {:?}", &headers[idx as usize]);
                     }
-                    _ => {}
                 }
+                _ => {}
+            }
 
-                let rows = headers
-                    .iter()
-                    .zip(rec.iter())
-                    .map(|(col, val)| format!("{}: {:?}", col, val))
-                    .join("\n");
-                eprintln!("Source: {src}\n{rows}")
-            })
-            .unwrap()
+            let rows = headers
+                .iter()
+                .zip(rec.iter())
+                .map(|(col, val)| format!("{}: {:?}", col, val))
+                .join("\n");
+            eprintln!("Source: {src}\n{rows}")
+        })
     })
 }
 
