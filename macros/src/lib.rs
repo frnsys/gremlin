@@ -13,8 +13,8 @@ use syn::{
     parse::{Parse, ParseStream, Result},
     parse_macro_input,
     punctuated::Punctuated,
-    Constraint, Data, DeriveInput, Expr, ExprLit, Fields, GenericArgument, Ident, Lit, Meta,
-    MetaNameValue, Path, PathArguments, Token, Type, TypePath,
+    Constraint, Data, DeriveInput, Expr, ExprLit, Fields, GenericArgument, Ident, Lit, Meta, Path,
+    PathArguments, Token, Type, TypePath,
 };
 
 fn resolve_crate_name() -> TokenStream2 {
@@ -771,13 +771,49 @@ pub fn derive_constrained(input: TokenStream) -> TokenStream {
         for attr in field.attrs {
             if attr.path().is_ident("constraint") {
                 match attr.meta {
-                    Meta::List(list) => {
-                        if let Ok(meta) = syn::parse2::<MetaNameValue>(list.tokens) {
-                            let constraint = meta.path.get_ident().unwrap();
-                            let value = meta.value;
-                            constraints
-                                .push(quote! { #gremlin::data::Constraint::#constraint(#value) });
-                        }
+                    Meta::List(_) => {
+                        let _ = attr.parse_nested_meta(|meta| {
+                            if meta.path.is_ident("allow_none") {
+                                // `allow_none` handled above.
+                                return Ok(());
+                            }
+
+                            if let Ok(value) = meta.value() {
+                                let constraint = meta.path.get_ident().unwrap();
+                                let value: Lit = value.parse().unwrap();
+                                constraints.push(
+                                    quote! { #gremlin::data::Constraint::#constraint(#value) },
+                                );
+                            } else {
+                                let function = meta.path.get_ident().unwrap();
+
+                                // Allow `None` values to pass.
+                                if allow_none {
+                                    field_validations.push(quote! {
+                                        if let Some(value) = &self.#field_name {
+                                            if !#function(value) {
+                                                errors.push(#gremlin::data::Breach {
+                                                    field: stringify!(#field_name).to_string(),
+                                                    constraint: stringify!(#function).to_string(),
+                                                    value: value.to_string(),
+                                                })
+                                            }
+                                        }
+                                    });
+                                } else {
+                                    field_validations.push(quote! {
+                                        if !#function(&self.#field_name) {
+                                            errors.push(#gremlin::data::Breach {
+                                                field: stringify!(#field_name).to_string(),
+                                                constraint: stringify!(#function).to_string(),
+                                                value: self.#field_name.to_string(),
+                                            })
+                                        }
+                                    });
+                                }
+                            }
+                            Ok(())
+                        });
                     }
                     Meta::Path(path) => {
                         if path.is_ident("allow_none") {
