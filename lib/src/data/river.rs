@@ -172,11 +172,13 @@ where
         // Generate initial items.
         let mut items = self.source.generate()?;
 
-        let mut incomplete: Diff<isize> = Diff::default();
-        incomplete.current = items
-            .iter()
-            .filter(|item| !item.missing_fields().is_empty())
-            .count() as isize;
+        let mut incomplete: Diff<isize> = Diff {
+            current: items
+                .iter()
+                .filter(|item| !item.missing_fields().is_empty())
+                .count() as isize,
+            ..Default::default()
+        };
         let mut invalid: Diff<Vec<Breach>> =
             Diff::new(items.iter().flat_map(|item| item.validate()).collect());
         let mut var_profiles = Diff::new(items.var_profiles());
@@ -538,7 +540,10 @@ mod tests {
             field_a: f32,
             #[row]
             field_b: SomeUnit,
+
+            #[allow(dead_code)]
             field_c: String,
+
             #[row]
             field_d: SomeNestedType,
         }
@@ -564,7 +569,7 @@ mod tests {
             field_b: SomeUnit,
             field_c: "hello".to_string(),
             field_d: SomeNestedType {
-                subfield_a: 3.14,
+                subfield_a: 3.2,
                 subfield_b: 2.71,
             },
         };
@@ -578,6 +583,6 @@ mod tests {
                 "field_d.subfield_b"
             ]
         );
-        assert_eq!(foo.values(), vec![42., 1., 3.14, 2.71]);
+        assert_eq!(foo.values(), vec![42., 1., 3.2, 2.71]);
     }
 }

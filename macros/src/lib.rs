@@ -336,16 +336,13 @@ pub fn partial_struct(input: TokenStream) -> TokenStream {
                                     args.args.first()
                                 {
                                     // Modify the type to Vec<PartialT>
-                                    let p_name = format!(
-                                        "Vec<Partial{}>",
-                                        inner_ty.to_token_stream().to_string()
-                                    );
+                                    let p_name =
+                                        format!("Vec<Partial{}>", inner_ty.to_token_stream());
                                     new_ty = syn::parse_str::<Type>(&p_name).unwrap();
                                 }
                             } else {
                                 // PartialT
-                                let p_name =
-                                    format!("Partial{}", new_ty.to_token_stream().to_string());
+                                let p_name = format!("Partial{}", new_ty.to_token_stream());
                                 new_ty = syn::parse_str::<Type>(&p_name).unwrap();
                             }
                         }

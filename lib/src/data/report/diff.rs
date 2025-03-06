@@ -108,7 +108,9 @@ impl Diff<Vec<Breach>> {
             for breach in previous {
                 let by_field = by_constraint.entry(breach.field.clone()).or_default();
                 let count = by_field.entry(breach.constraint.clone()).or_default();
-                count.previous.as_mut().map(|count| *count += 1);
+                if let Some(count) = &mut count.previous {
+                    *count += 1;
+                }
             }
         }
         by_constraint

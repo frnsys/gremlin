@@ -41,7 +41,7 @@ impl std::fmt::Display for Count {
         write!(f, "{} ({})", self.count, self.display_percent())
     }
 }
-impl<'a, 'b> std::ops::Sub<&'b Count> for &'a Count {
+impl<'b> std::ops::Sub<&'b Count> for &Count {
     type Output = Count;
     fn sub(self, rhs: &'b Count) -> Self::Output {
         Count {
@@ -93,7 +93,7 @@ impl std::ops::Sub<&VarProfile> for &VarProfile {
     type Output = VarProfile;
     fn sub(self, rhs: &VarProfile) -> Self::Output {
         VarProfile {
-            total: &self.total - &rhs.total,
+            total: self.total - rhs.total,
             missing: &self.missing - &rhs.missing,
             infinite: &self.infinite - &rhs.infinite,
             negative: &self.negative - &rhs.negative,
@@ -289,7 +289,7 @@ pub fn profile(values: impl Iterator<Item = impl Into<f32>>) -> VarProfile {
     let valid: Vec<f32> = values.into_iter().filter(|val| !val.is_nan()).collect();
     let n_valid = valid.len() as isize;
 
-    let missing = Count::new(total as isize - n_valid as isize, total);
+    let missing = Count::new(total as isize - n_valid, total);
 
     let finite: Vec<f32> = valid.into_iter().filter(|val| val.is_finite()).collect();
     let infinite = Count::new(n_valid - finite.len() as isize, total);
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn test_profile() {
         #[rustfmt::skip]
-        let vals = vec![
+        let vals = [
             1.,
             f32::NAN,
             -2.,

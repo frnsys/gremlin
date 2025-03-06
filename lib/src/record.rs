@@ -99,9 +99,9 @@ pub trait Recorder {
 ///
 /// - `singleton`: indicating only one of `T` is expected.
 /// - `entity`: indicating we expect a collection of `T`,
-///     and we record data for each instance individually.
+///   and we record data for each instance individually.
 /// - `group`: indicating we expect a collection of `T`, and we
-///     record data over the entire collection.
+///   record data over the entire collection.
 ///
 /// Note that [`Snapshot`] must implement [`SnapshotGet<T>`] as well, so
 /// we know how to get `T` from a model snapshot.

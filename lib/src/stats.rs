@@ -69,7 +69,7 @@ impl Data {
     }
 
     pub fn min(&self) -> Option<f32> {
-        self.0.get(0).copied().map(OrderedFloat::into_inner)
+        self.0.first().copied().map(OrderedFloat::into_inner)
     }
 
     pub fn max(&self) -> Option<f32> {

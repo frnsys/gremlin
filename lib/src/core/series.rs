@@ -80,7 +80,7 @@ impl<I: Interval, T: Clone> Clone for SeriesRow<I, T> {
 }
 impl<I: Interval, T: PartialEq> PartialEq for SeriesRow<I, T> {
     fn eq(&self, other: &Self) -> bool {
-        other.when == other.when && other.value == other.value
+        self.when == other.when && self.value == other.value
     }
 }
 

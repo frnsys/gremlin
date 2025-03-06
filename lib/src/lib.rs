@@ -6,8 +6,8 @@
 //! This includes features like:
 //! - Data structures for working with timeseries.
 //! - Units leveraging the type system so that the expected
-//!     units are self-documented throughout the model and
-//!     checked at compile-time.
+//!   units are self-documented throughout the model and
+//!   checked at compile-time.
 //! - Helpers for processing raw data into consistent types.
 //! - Helpers for automating some aspects of model documentation.
 //! - Helpers for capturing model outputs.

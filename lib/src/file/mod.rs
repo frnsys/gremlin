@@ -24,7 +24,7 @@ fn _read_csv<T: DeserializeOwned, P: AsRef<Path>>(
 ) -> impl Iterator<Item = Result<T, csv::Error>> {
     let path = path.as_ref();
     let mut reader = csv::Reader::from_path(path)
-        .inspect_err(|_err| eprintln!("Error reading CSV: {}", path.display().to_string()))
+        .inspect_err(|_err| eprintln!("Error reading CSV: {}", path.display()))
         .unwrap();
     let headers = reader.headers().unwrap().clone();
     let src = path.display().to_string();
@@ -35,13 +35,10 @@ fn _read_csv<T: DeserializeOwned, P: AsRef<Path>>(
             .inspect_err(|_err| eprintln!("Error reading CSV record: {}", display))
             .unwrap();
         rec.deserialize(Some(&headers)).inspect_err(|err| {
-            match err.kind() {
-                csv::ErrorKind::Deserialize { err, .. } => {
-                    if let Some(idx) = err.field() {
-                        eprintln!("Field: {:?}", &headers[idx as usize]);
-                    }
+            if let csv::ErrorKind::Deserialize { err, .. } = err.kind() {
+                if let Some(idx) = err.field() {
+                    eprintln!("Field: {:?}", &headers[idx as usize]);
                 }
-                _ => {}
             }
 
             let rows = headers
@@ -99,11 +96,11 @@ pub fn read_rows<const N: usize>(path: &Path, columns: &[&str; N]) -> DataResult
 /// The way this works is:
 ///
 /// - We first serialize a default copy of the object to a YAML
-///     object so we learn the flattened column names and types.
-///     This is why `T` must implement both `Serialize` and `Default`.
+///   object so we learn the flattened column names and types.
+///   This is why `T` must implement both `Serialize` and `Default`.
 /// - We read the CSV and check that the columns look correct.
 /// - Then we parse each CSV record according to what we learned
-///     from the YAML-serialized example.
+///   from the YAML-serialized example.
 ///
 /// For this to work you must flatten fields that are structs and
 /// define a prefix:

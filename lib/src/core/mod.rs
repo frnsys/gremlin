@@ -84,8 +84,7 @@ pub type ByYearHour<N> = Array<N, 8760>;
 impl<N: Numeric> ByYearHour<N> {
     /// Repeat a day across the year.
     pub fn from_day(value: [N; 24]) -> Self {
-        let values: [N; 8760] = std::iter::repeat(value)
-            .take(365)
+        let values: [N; 8760] = std::iter::repeat_n(value, 365)
             .flatten()
             .collect::<Vec<_>>()
             .try_into()

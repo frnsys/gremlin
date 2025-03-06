@@ -74,7 +74,7 @@ impl<K: Ord, T: Clone> IndexMut<K> for DataMap<K, T> {
 impl<K: Ord, T: Clone + Default> FromIterator<(K, T)> for DataMap<K, T> {
     fn from_iter<IT: IntoIterator<Item = (K, T)>>(iter: IT) -> Self {
         Self {
-            map: iter.into_iter().map(|(k, v)| (k.into(), v)).collect(),
+            map: iter.into_iter().collect(),
             default: T::default(),
         }
     }
@@ -95,7 +95,10 @@ mod tests {
 
         #[derive(PartialEq, Eq, PartialOrd, Ord)]
         enum MySubKey {
+            #[allow(dead_code)]
             X,
+
+            #[allow(dead_code)]
             Y,
             Z,
         }

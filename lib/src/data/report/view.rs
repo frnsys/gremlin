@@ -10,8 +10,8 @@ use itertools::Itertools;
 use maud::html;
 use thousands::Separable;
 
-const CSS: &'static str = include_str!("assets/report.css");
-const JS: &'static str = include_str!("assets/report.js");
+const CSS: &str = include_str!("assets/report.css");
+const JS: &str = include_str!("assets/report.js");
 
 const ERROR_SCALE: &[&str] = &[
     "#bbbbbb", "#bbbbbb", "#ffdf5f", "#fdcf50", "#fbbe43", "#f8ad37", "#f59b2e", "#f18a27",
@@ -264,6 +264,7 @@ fn diff_col(cur: f32, prev: f32) -> maud::Markup {
     }
 }
 
+#[allow(clippy::comparison_chain)]
 fn count_change_span(cur: isize, prev: isize) -> maud::Markup {
     let diff = cur - prev;
     html! {
@@ -283,6 +284,7 @@ fn count_change_span(cur: isize, prev: isize) -> maud::Markup {
     }
 }
 
+#[allow(clippy::comparison_chain)]
 fn count_change_col(cur: isize, prev: isize) -> maud::Markup {
     let diff = cur - prev;
     html! {
@@ -302,6 +304,7 @@ fn count_change_col(cur: isize, prev: isize) -> maud::Markup {
     }
 }
 
+#[allow(clippy::comparison_chain)]
 fn error_change(change: isize) -> maud::Markup {
     html! {
         @if change < 0 {
@@ -457,7 +460,7 @@ fn profile_diff_table(
                         @for (source, ref_vals_by_source_facet) in refs.iter() {
                             @for (source_facet, ref_vals) in ref_vals_by_source_facet.iter() {
                                 (ref_vals.get(var).map(|ref_val| {
-                                    let id = format!("{}:{}", source, facet_name(&source_facet));
+                                    let id = format!("{}:{}", source, facet_name(source_facet));
                                     html! {
                                         tr.ref-vals {
                                             td title=(&id) {
