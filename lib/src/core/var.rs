@@ -7,7 +7,7 @@ use tracing::warn;
 /// Exogenous variables are basically queues of pre-defined values,
 /// with one value used per step. If the queue is exhausted before
 /// the simulation finishes then subsequent steps will re-use the last value.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExogVariable<T: Clone> {
     queue: VecDeque<T>,
 }

@@ -8,7 +8,8 @@ where
     Unsorted(Vec<N>),
 }
 
-pub struct Data(Vec<f32>);
+#[derive(Debug)]
+pub struct Data(Vec<OrderedFloat<f32>>);
 impl Data {
     pub fn from_sorted<N>(values: Vec<N>) -> Self
     where
@@ -30,15 +31,18 @@ where
     f32: From<N>,
 {
     fn from(values: Values<N>) -> Self {
-        let values: Vec<f32> = match values {
-            Values::Sorted(vec) => vec.into_iter().map(f32::from).collect(),
+        let values: Vec<OrderedFloat<f32>> = match values {
+            Values::Sorted(vec) => vec
+                .into_iter()
+                .map(|v| OrderedFloat(f32::from(v)))
+                .collect(),
             Values::Unsorted(vec) => {
                 let mut values: Vec<_> = vec
                     .into_iter()
                     .map(|v| OrderedFloat(f32::from(v)))
                     .collect();
                 values.sort();
-                values.into_iter().map(OrderedFloat::into_inner).collect()
+                values
             }
         };
         Self(values)
@@ -59,15 +63,17 @@ impl Data {
     }
 
     pub fn push(&mut self, value: f32) {
-        self.0.push(value);
+        let value = OrderedFloat(value);
+        let pos = self.0.binary_search(&value).unwrap_or_else(|e| e);
+        self.0.insert(pos, value);
     }
 
     pub fn min(&self) -> Option<f32> {
-        self.0.get(0).copied()
+        self.0.get(0).copied().map(OrderedFloat::into_inner)
     }
 
     pub fn max(&self) -> Option<f32> {
-        self.0.last().copied()
+        self.0.last().copied().map(OrderedFloat::into_inner)
     }
 
     pub fn range(&self) -> Option<f32> {
@@ -86,16 +92,19 @@ impl Data {
         } else {
             vals[mid]
         };
-        Some(val)
+        Some(*val)
     }
 
     pub fn mean(&self) -> Option<f32> {
         let vals = &self.0;
         if vals.is_empty() {
-            return None;
+            None
+        } else if vals.first() == vals.last() {
+            Some(*vals[0])
+        } else {
+            let mean = vals.iter().map(|v| **v).sum::<f32>() / vals.len() as f32;
+            Some(mean)
         }
-        let mean = vals.iter().sum::<f32>() / vals.len() as f32;
-        Some(mean)
     }
 
     pub fn variance(&self) -> Option<f32> {
@@ -159,11 +168,11 @@ impl Data {
         let index = (percentile / 100.0) * (vals.len() as f32 - 1.0);
         let lower = index.floor() as usize;
         let upper = index.ceil() as usize;
-        if lower == upper {
-            vals[lower]
+        if lower == upper || vals[lower] == vals[upper] {
+            *vals[lower]
         } else {
             let weight = index - lower as f32;
-            vals[lower] * (1.0 - weight) + vals[upper] * weight
+            *(vals[lower] * (1.0 - weight) + vals[upper] * weight)
         }
     }
 
@@ -202,6 +211,7 @@ impl Data {
             .outlier_bounds()
             .unwrap_or((f32::INFINITY, f32::NEG_INFINITY));
         self.0.iter().map(move |&x| {
+            let x = *x;
             if x < lower || x > upper {
                 None
             } else {
@@ -215,7 +225,7 @@ impl Data {
         let (lower, upper) = self
             .outlier_bounds()
             .unwrap_or((f32::INFINITY, f32::NEG_INFINITY));
-        self.0.retain(|&x| x >= lower && x <= upper);
+        self.0.retain(|&x| *x >= lower && *x <= upper);
     }
 
     fn bin_values(&self, num_bins: usize) -> Vec<Vec<f32>> {
@@ -237,7 +247,7 @@ impl Data {
             }
             .min(num_bins - 1); // Ensure the index does not exceed the number of bins
 
-            bins[bin_index].push(value);
+            bins[bin_index].push(*value);
         }
 
         bins
