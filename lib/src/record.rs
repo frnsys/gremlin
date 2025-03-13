@@ -13,6 +13,7 @@ use crate::file::write_csv;
 use serde::Serialize;
 
 /// This trait indicates that something has a name.
+/// Note that this name is also used for faceting recorded data.
 pub trait Named {
     fn name(&self) -> String;
 }

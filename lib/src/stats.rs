@@ -1,5 +1,5 @@
-pub use hypors::common::TestResult;
-use hypors::{common::TailType, mann_whitney};
+pub use hypors::common::{TailType, TestResult};
+use hypors::mann_whitney;
 use ordered_float::OrderedFloat;
 pub use polars::error::PolarsError;
 use polars::series::Series;
@@ -301,7 +301,7 @@ pub fn test_hypothesis(
     alpha: f64,
     tail: TailType,
 ) -> Result<TestResult, PolarsError> {
-    let sample_a: Series = sample_a.iter().collect();
-    let sample_b: Series = sample_b.iter().collect();
+    let sample_a: Series = sample_a.iter().map(|val| *val as f64).collect();
+    let sample_b: Series = sample_b.iter().map(|val| *val as f64).collect();
     mann_whitney::u_test(&sample_a, &sample_b, alpha, tail)
 }
