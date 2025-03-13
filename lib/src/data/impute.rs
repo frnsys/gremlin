@@ -135,7 +135,7 @@ pub fn impute(mut df: DataFrame, column: &str, strategy: &ImputeStrategy) -> Dat
                         .alias("group_mean"),
                 )
                 .with_column(col(column).fill_null(col("group_mean")).alias(column))
-                .drop_columns(["group_mean"])
+                .drop(["group_mean"])
                 .collect()?;
         }
     }

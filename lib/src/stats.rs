@@ -1,4 +1,8 @@
+pub use hypors::common::TestResult;
+use hypors::{common::TailType, mann_whitney};
 use ordered_float::OrderedFloat;
+pub use polars::error::PolarsError;
+use polars::series::Series;
 
 enum Values<N>
 where
@@ -289,4 +293,15 @@ impl MultiData {
     pub fn iter(&self) -> impl Iterator<Item = &Data> {
         self.0.iter()
     }
+}
+
+pub fn test_hypothesis(
+    sample_a: &[f32],
+    sample_b: &[f32],
+    alpha: f64,
+    tail: TailType,
+) -> Result<TestResult, PolarsError> {
+    let sample_a: Series = sample_a.iter().collect();
+    let sample_b: Series = sample_b.iter().collect();
+    mann_whitney::u_test(&sample_a, &sample_b, alpha, tail)
 }

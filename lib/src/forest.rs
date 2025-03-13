@@ -18,8 +18,11 @@ pub fn as_df<T: Serialize>(items: &[T]) -> DataFrame {
         }
         w.flush().unwrap();
     }
-    let reader = CsvReader::new(std::io::Cursor::new(buf));
-    reader.has_header(true).finish().unwrap()
+    CsvReadOptions::default()
+        .with_has_header(true)
+        .into_reader_with_file_handle(std::io::Cursor::new(buf))
+        .finish()
+        .unwrap()
 }
 
 #[derive(Debug, Error)]
