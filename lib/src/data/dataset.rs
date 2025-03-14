@@ -206,7 +206,7 @@ pub trait Dataset {
             None,
             DataProfile {
                 total: rows.len(),
-                profiles: build_var_profile(rows.into_iter(), &cols),
+                profiles: build_var_profile(rows, &cols),
             },
         );
 
@@ -215,7 +215,7 @@ pub trait Dataset {
                 Some(facet.to_string()),
                 DataProfile {
                     total: rows.len(),
-                    profiles: build_var_profile(rows.into_iter(), &cols),
+                    profiles: build_var_profile(rows, &cols),
                 },
             );
         }
@@ -302,13 +302,16 @@ impl DataProfile {
 }
 
 fn build_var_profile<'a, R: Row + 'a>(
-    rows: impl Iterator<Item = &'a R>,
+    rows: Vec<&'a R>,
     columns: &[String],
 ) -> BTreeMap<String, VarProfile> {
-    let mut col_values: BTreeMap<String, Vec<f32>> = BTreeMap::default();
+    let n = rows.len();
+    let mut col_values: BTreeMap<&str, Vec<f32>> = BTreeMap::default();
     for row in rows {
         for (col, val) in columns.iter().zip(row.values().iter()) {
-            let vals = col_values.entry(col.clone()).or_default();
+            let vals = col_values
+                .entry(col.as_str())
+                .or_insert_with(|| Vec::with_capacity(n));
             vals.push(*val);
         }
     }
@@ -316,7 +319,7 @@ fn build_var_profile<'a, R: Row + 'a>(
         .into_iter()
         .map(|(col, vals)| {
             let profile = profile(vals.into_iter());
-            (col, profile)
+            (col.to_string(), profile)
         })
         .collect()
 }
