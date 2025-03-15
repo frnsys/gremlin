@@ -2,34 +2,21 @@
 
 use std::{
     marker::PhantomData,
-    sync::{mpsc, Arc, Mutex},
+    sync::{mpsc, Arc, Condvar, Mutex},
     thread,
 };
 
-use arc_swap::ArcSwapOption;
-
-type JobOutput<T> = Arc<ArcSwapOption<T>>;
+type JobOutput<T> = Arc<(Mutex<Option<T>>, Condvar)>;
 
 pub struct JobHandle<T>(JobOutput<T>);
 impl<T> JobHandle<T> {
-    pub fn ready(&self) -> bool {
-        self.0.load().is_some()
-    }
-
-    pub fn poll(&self) -> Option<T> {
-        let ready = self.0.load().is_some();
-        if ready {
-            let val = self
-                .0
-                .swap(None)
-                .expect("We checked that the result is Some");
-            Some(
-                Arc::into_inner(val)
-                    .expect("Only one handle should be left"),
-            )
-        } else {
-            None
+    pub fn wait(&self) -> T {
+        let (lock, cvar) = &*self.0;
+        let mut result = lock.lock().unwrap();
+        while result.is_none() {
+            result = cvar.wait(result).unwrap();
         }
+        result.take().unwrap()
     }
 }
 
@@ -84,7 +71,7 @@ impl<T: Send + Sync + 'static> ThreadPool<T> {
         F: FnOnce() -> T + Send + 'static,
     {
         let job = Box::new(f);
-        let output = Arc::new(ArcSwapOption::from(None));
+        let output = Arc::new((Mutex::new(None), Condvar::new()));
         self.sender
             .send(Message::<T>::NewJob(output.clone(), job))
             .unwrap();
@@ -120,11 +107,14 @@ pub fn task<F, T: Send + Sync + 'static>(f: F) -> JobHandle<T>
 where
     F: FnOnce() -> T + Send + 'static,
 {
-    let output = Arc::new(ArcSwapOption::from(None));
+    let output = Arc::new((Mutex::new(None), Condvar::new()));
     let t_output = output.clone();
     thread::spawn(move || {
         let result = f();
-        t_output.store(Some(Arc::new(result)));
+        let (lock, cvar) = &*t_output;
+        let mut done = lock.lock().unwrap();
+        *done = Some(result);
+        cvar.notify_one();
     });
     JobHandle(output)
 }
@@ -135,17 +125,17 @@ struct Worker<T: Send + Sync + 'static> {
 }
 
 impl<T: Send + Sync + 'static> Worker<T> {
-    fn new(
-        receiver: Arc<Mutex<mpsc::Receiver<Message<T>>>>,
-    ) -> Worker<T> {
+    fn new(receiver: Arc<Mutex<mpsc::Receiver<Message<T>>>>) -> Worker<T> {
         let thread = thread::spawn(move || loop {
-            let message =
-                receiver.lock().unwrap().recv().unwrap();
+            let message = receiver.lock().unwrap().recv().unwrap();
 
             match message {
                 Message::NewJob(output, job) => {
                     let result = job.call_box();
-                    output.store(Some(Arc::new(result)));
+                    let (lock, cvar) = &*output;
+                    let mut done = lock.lock().unwrap();
+                    *done = Some(result);
+                    cvar.notify_one();
                 }
                 Message::Terminate => {
                     break;
