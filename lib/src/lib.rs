@@ -19,6 +19,7 @@ pub mod data;
 pub mod docs;
 pub mod file;
 
+pub mod bayes;
 pub mod id;
 pub mod logging;
 pub mod record;

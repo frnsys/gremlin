@@ -2,7 +2,7 @@
 
 use std::sync::LazyLock;
 
-use petname::Petnames;
+use petname::{Generator, Petnames};
 
 /// Merge lines from multiple files.
 macro_rules! join_contents {
@@ -45,11 +45,10 @@ const NOUNS: &str = join_contents!("nouns", {
     "geography.txt",
 });
 
-static IDS: LazyLock<Petnames<'static>> =
-    LazyLock::new(|| Petnames::init(ADJECTIVES, "", NOUNS));
+static IDS: LazyLock<Petnames<'static>> = LazyLock::new(|| Petnames::new(ADJECTIVES, "", NOUNS));
 
 /// Generate a random human-readable id.
 pub fn generate_id() -> String {
     let mut rng = rand::thread_rng();
-    IDS.generate(&mut rng, 2, "-")
+    IDS.generate(&mut rng, 2, "-").unwrap()
 }
