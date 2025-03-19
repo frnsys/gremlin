@@ -66,6 +66,14 @@ impl Data {
         self.0.is_empty()
     }
 
+    pub fn get(&self, index: usize) -> f32 {
+        self.0[index].into_inner()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = f32> + '_ {
+        self.0.iter().copied().map(OrderedFloat::into_inner)
+    }
+
     pub fn push(&mut self, value: f32) {
         let value = OrderedFloat(value);
         let pos = self.0.binary_search(&value).unwrap_or_else(|e| e);
