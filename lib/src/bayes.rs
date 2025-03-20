@@ -267,13 +267,20 @@ impl Beta {
         let mean: f64 = data.iter().sum::<f64>() / n;
         let variance: f64 = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
 
+        // Handle case of all zero data.
+        if mean == 0. && variance == 0. {
+            return Self {
+                alpha: 0.001,
+                beta: n,
+            };
+        }
+
         // Ensure variance is non-zero (to avoid division by zero)
         let adjusted_variance = variance.max(1e-6);
 
-        let common_factor = mean * (1.0 - mean) / adjusted_variance - 1.0;
+        let common_factor = (mean * (1.0 - mean) / adjusted_variance - 1.0).max(0.);
         let alpha = mean * common_factor;
         let beta = (1.0 - mean) * common_factor;
-
         Self { alpha, beta }
     }
 }
