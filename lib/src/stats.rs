@@ -12,7 +12,7 @@ where
     Unsorted(Vec<N>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Data(Vec<OrderedFloat<f32>>);
 impl Data {
     pub fn from_sorted<N>(values: Vec<N>) -> Self

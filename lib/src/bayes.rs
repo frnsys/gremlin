@@ -65,7 +65,7 @@ pub trait Bayes {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Gamma {
     /// Shape parameter (prior + observed sum)
     alpha: f64,
@@ -149,7 +149,7 @@ impl Bayes for Gamma {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Exponential {
     lambda: f64,
     count: f64,
@@ -183,7 +183,7 @@ impl Bayes for Exponential {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LogNormal {
     mu: f64,
     sigma2: f64,
@@ -239,7 +239,7 @@ impl Bayes for LogNormal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Beta {
     /// Prior successes
     alpha: f64,
