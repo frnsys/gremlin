@@ -92,11 +92,8 @@ impl Gamma {
         let mean: f64 = data.iter().sum::<f64>() / n;
         let variance: f64 = data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / n;
 
-        println!("variance: {:?}", variance);
-        println!("mean: {:?}", mean);
         if variance < 1e-3 {
             let prior_strength = data.iter().sum::<f64>();
-            println!("prior_strength: {:?}", prior_strength);
             let alpha = prior_strength;
             let beta = prior_strength / mean;
             return Self {
@@ -292,6 +289,48 @@ impl Bayes for Beta {
             if x >= 0.0 && x <= 1.0 {
                 self.alpha += x;
                 self.beta += 1.0 - x;
+            }
+        }
+    }
+
+    fn distribution(&self) -> Self::Distribution {
+        stats::Beta::new(self.alpha, self.beta).unwrap()
+    }
+
+    fn uncertainty(&self) -> f64 {
+        let total = self.alpha + self.beta;
+        (1.0 / total).min(1.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Bernoulli {
+    /// Prior successes
+    alpha: f64,
+
+    /// Prior failures
+    beta: f64,
+}
+impl Bernoulli {
+    pub fn new(prior_mean: f64, prior_strength: f64) -> Self {
+        let alpha = prior_mean * prior_strength;
+        let beta = (1.0 - prior_mean) * prior_strength;
+        Self { alpha, beta }
+    }
+
+    pub fn mean(&self) -> f64 {
+        self.alpha / (self.alpha + self.beta)
+    }
+}
+impl Bayes for Bernoulli {
+    type Distribution = stats::Beta;
+
+    fn update(&mut self, new_data: &[f64]) {
+        for &x in new_data {
+            let obs = x > 0.;
+            match obs {
+                true => self.alpha += 1.0,
+                false => self.beta += 1.0,
             }
         }
     }
