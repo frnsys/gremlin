@@ -294,7 +294,13 @@ impl Bayes for Beta {
     }
 
     fn distribution(&self) -> Self::Distribution {
-        stats::Beta::new(self.alpha, self.beta).unwrap()
+        // A little hacky, but avoid invalid parameters,
+        // i.e. alpha and beta both 0.
+        if self.alpha == 0. && self.beta == 0. {
+            stats::Beta::new(0.01, 50.).unwrap()
+        } else {
+            stats::Beta::new(self.alpha, self.beta).unwrap()
+        }
     }
 
     fn uncertainty(&self) -> f64 {
