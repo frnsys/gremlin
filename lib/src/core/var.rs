@@ -37,6 +37,14 @@ impl<T: Clone> ExogVariable<T> {
     pub fn is_exhausted(&self) -> bool {
         self.queue.len() <= 1
     }
+
+    pub fn nth_value(&self, n: usize) -> &T {
+        if n >= self.queue.len() {
+            &self.queue[0]
+        } else {
+            &self.queue[n]
+        }
+    }
 }
 
 #[cfg(test)]

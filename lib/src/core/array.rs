@@ -277,16 +277,16 @@ macro_rules! impl_unit_arithmetic {
                 }
             }
 
-            impl<N: Numeric, const U: usize> Mul<f32> for $target {
-                type Output = Array<N, U>;
-                fn mul(self, rhs: f32) -> Self::Output {
+            impl<N: Numeric, const U: usize, M: Copy> Mul<M> for $target where N: Mul<M> {
+                type Output = Array<<N as Mul<M>>::Output, U>;
+                fn mul(self, rhs: M) -> Self::Output {
                     let result = self.0.map(|v| v * rhs);
                     Self::Output::new(result)
                 }
             }
-            impl<N: Numeric, const U: usize> Div<f32> for $target {
-                type Output = Array<N, U>;
-                fn div(self, rhs: f32) -> Self::Output {
+            impl<N: Numeric, const U: usize, M: Copy> Div<M> for $target where N: Div<M> {
+                type Output = Array<<N as Div<M>>::Output, U>;
+                fn div(self, rhs: M) -> Self::Output {
                     let result = self.0.map(|v| v / rhs);
                     Self::Output::new(result)
                 }
