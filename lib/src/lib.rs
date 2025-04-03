@@ -26,11 +26,7 @@ pub mod record;
 pub mod stats;
 pub mod util;
 
-#[cfg(feature = "plotting")]
-pub mod plot;
-
-#[cfg(feature = "forest")]
-pub mod forest;
+pub mod table;
 
 pub use gremlin_macros::*;
 pub use paste;

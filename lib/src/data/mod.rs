@@ -16,14 +16,6 @@ mod reference;
 mod report;
 mod river;
 
-// Behind a feature gate as the
-// polars dependency can be quite heavy.
-#[cfg(feature = "imputing")]
-pub mod impute;
-
-#[cfg(feature = "imputing")]
-pub use impute::*;
-
 pub use cache::*;
 pub use constrain::*;
 pub use datamap::*;
