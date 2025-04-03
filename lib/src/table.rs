@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use ahash::HashMap;
 pub use comfy_table::Cell;
 use comfy_table::{CellAlignment, Row, Table};
 use ordered_float::OrderedFloat;
@@ -41,6 +42,21 @@ pub fn print_simple_table<const N: usize>(
 ) {
     let table = simple_table(cols, rows);
     print_table(title, table);
+}
+
+pub fn print_counts<K: Display>(title: &str, counts: &HashMap<K, usize>) {
+    print_map(title, "Count", counts);
+}
+
+pub fn print_map<'a, M, K: Display + 'a, V: AsCell + 'a>(title: &str, column: &str, map: &'a M)
+where
+    &'a M: IntoIterator<Item = (&'a K, &'a V)>,
+{
+    print_simple_table(
+        title,
+        [column],
+        map.into_iter().map(|(k, v)| (k.to_string(), [v.as_cell()])),
+    );
 }
 
 fn build_table(cols: impl Into<Row>, rows: impl Iterator<Item = Vec<Cell>>) -> Table {
