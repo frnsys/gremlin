@@ -25,7 +25,7 @@ use thousands::Separable;
 /// _Note_: `Deref` should *not* be implemented because we want
 /// to be explicit and know when we're ignoring the associated
 /// units. Instead you use `.value()` to access the raw value.
-pub trait Unit: Copy + Debug + From<f32> {
+pub trait Unit: Copy + Debug + From<f32> + for<'a> std::iter::Sum<&'a Self> {
     /// The abbreviation for this unit, e.g. "W".
     fn abbrev() -> String;
 
@@ -39,6 +39,15 @@ pub trait Unit: Copy + Debug + From<f32> {
 
     /// Return a mutable reference to the value of this quantity.
     fn value_mut(&mut self) -> &mut f32;
+}
+
+pub trait IntoUnits {
+    fn into_units<U: Unit>(self) -> Vec<U>;
+}
+impl IntoUnits for Vec<f32> {
+    fn into_units<U: Unit>(self) -> Vec<U> {
+        self.into_iter().map(U::from).collect()
+    }
 }
 
 /// Implement all the traits necessary for to implement [`Numeric`].
@@ -73,6 +82,12 @@ macro_rules! impl_numeric {
         impl<$($($bounds)*)?> std::ops::Add for $type {
             type Output = $type;
             fn add(self, rhs: $type) -> Self::Output {
+                Self::new(self.value() + rhs.value())
+            }
+        }
+        impl<'a, $($($bounds)*)?> std::ops::Add<&'a $type> for $type {
+            type Output = $type;
+            fn add(self, rhs: &'a $type) -> Self::Output {
                 Self::new(self.value() + rhs.value())
             }
         }
@@ -122,6 +137,11 @@ macro_rules! impl_numeric {
         }
         impl<$($($bounds)*)?> std::iter::Sum for $type {
             fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+                iter.fold(Self::default(), |a, b| a + b)
+            }
+        }
+        impl<'a, $($($bounds)*)?> std::iter::Sum<&'a $type> for $type {
+            fn sum<I: Iterator<Item = &'a Self>>(iter: I) -> Self {
                 iter.fold(Self::default(), |a, b| a + b)
             }
         }
