@@ -17,7 +17,7 @@ pub use numeric::Numeric;
 pub use series::*;
 pub use typenum::U;
 pub use units::*;
-pub use var::ExogVariable;
+pub use var::*;
 
 use crate::data::{IterExt, Row};
 
