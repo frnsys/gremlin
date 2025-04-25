@@ -79,6 +79,14 @@ macro_rules! impl_numeric {
             }
         }
 
+        impl<$($($bounds)*)?> std::ops::Neg for $type {
+            type Output = $type;
+
+            fn neg(self) -> Self::Output {
+                Self::new(-self.value())
+            }
+        }
+
         impl<$($($bounds)*)?> std::ops::Add for $type {
             type Output = $type;
             fn add(self, rhs: $type) -> Self::Output {
